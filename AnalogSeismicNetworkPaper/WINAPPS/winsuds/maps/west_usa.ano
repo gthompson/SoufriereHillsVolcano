@@ -1,0 +1,54 @@
+; HypoMap annotation file
+
+; This file annotates the WEST_USA.LIN data file
+
+; WEST_USA.ANO
+
+; Origin_Latitude = 37.5
+; Origin_Longitude = -110.0
+; Extent = 12.5
+
+; 0 = Black, 1 = Blue, 2 = Green, 3 = Cyan
+; 4 = Red, 5 = Magenta, 6 = Brown, 7 = White
+; 8 = Grey, 9 = Light Blue, 10 = Light Green, 11 = Light Cyan
+; 12 = Light Red, 13 = Light Magenta, 14 = Yellow, 15 = Bright White
+
+;Lat      Long     Size Angle Color Text...
+;------------------------------------------------------------------------------
+39.5  -111.5  0.075    0.0 3 UTAH
+39.5  -117.0  0.075    0.0 3 NEVADA
+34.5  -111.5  0.075    0.0 3 ARIZONA
+34.5  -106.0  0.075    0.0 3 NEW MEXICO
+39.0  -105.5  0.075    0.0 3 COLORADO
+43.0  -107.5  0.075    0.0 3 WYOMING
+43.5  -114.0  0.075    0.0 3 IDAHO
+37.5  -120.0  0.075  -50.0 3 CALIFORNIA
+43.5  -120.5  0.075    0.0 3 OREGON
+47.2  -120.5  0.075    0.0 3 WASHINGTON
+47.0  -110.0  0.075    0.0 3 MONTANA
+47.5  -100.5  0.075    0.0 3 NORTH DAKOTA
+44.5  -100.5  0.075    0.0 3 SOUTH DAKOTA
+41.5  -100.0  0.075    0.0 3 NEBRASKA
+38.5   -98.5  0.075    0.0 3 KANSAS
+35.5   -97.5  0.075    0.0 3 OKLAHOMA
+31.5   -99.0  0.075    0.0 3 TEXAS
+46.0   -94.5  0.075    0.0 3 MINNESOTA
+42.0   -94.5  0.075    0.0 3 IOWA
+
+30.5  -115.2  0.05   -60.0 3 BAJA CALIFORNIA NORTE
+26.5  -112.3  0.05   -55.0 3 BAJA CALIFORNIA SUR
+29.5  -110.5  0.05     0.0 3 SONORA
+25.8  -108.0  0.05     0.0 3 SINALOA
+28.5  -106.3  0.05     0.0 3 CHIHUAHUA
+25.5  -105.0  0.05     0.0 3 DURANGO
+27.5  -102.3  0.05     0.0 3 COAHUILA
+25.6   -99.5  0.05     0.0 3 NUEVO LEON
+25.2   -98.3  0.05    45.0 3 TAMPAULIPAS
+
+49.5  -118.0  0.05     0.0 3 BRITISH COLUMBIA
+49.5  -112.3  0.05     0.0 3 ALBERTA
+49.5  -105.7  0.05     0.0 3 SASKATCHEWAN
+49.3   -98.5  0.05     0.0 3 MANITOBA
+48.7   -92.5  0.05     0.0 3 ONTARIO
+
+30.0  -120.5  0.15   -60.0 9 PACIFIC OCEAN

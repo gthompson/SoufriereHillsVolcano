@@ -1,0 +1,191 @@
+#!/usr/bin/perl
+#use DateTime;
+our ($year,$month,$day,$hour,$minute,$sec);
+$year = 1996;
+$month = 4;
+$day = 1;
+$hour = 0;
+$minute = 0;
+$sec = 0;
+
+system("clear");
+my $time_corrected = 0;
+#print("*** times in event book are Montserrat local time (UTC - 4 hours) ***\n");
+#print("*** Seisan needs dates/times converted to UTC  ***\n");
+#if(prompt_yn("Have times already been corrected to UTC ?")) {
+#	$time_corrected = 1;
+#}
+
+while (1) {
+
+	system("clear");
+
+	printf("Year [%4d]: ?",$year);
+	$newyear = <STDIN>;
+	chomp($newyear);
+	$newyear = $year if ($newyear eq "");
+	if ($newyear >= 1995 and $newyear <= 2008) 
+	{
+		$year = $newyear;
+	} else {
+		print "Invalid year\n";
+		next;
+	}
+
+	printf("Month [%02d]: ?",$month);
+	$newmonth = <STDIN>;
+	chomp($newmonth);
+	$newmonth = $month if ($newmonth eq "");
+	if ($newmonth > 0  and $newmonth <= 12) 
+	{
+		$month = $newmonth;
+	} else {
+		print "Invalid month\n";
+		next;
+	}
+
+	printf("Day [%02d]: ?",$day);
+	$newday = <STDIN>;
+	chomp($newday);
+	$newday = $day if ($newday eq "");
+	if ($newday > 0  and $newday <= 31) 
+	{
+		$day = $newday;
+	} else {
+		print "Invalid day\n";
+		next;
+	}
+
+
+	printf("OK, now begin to enter event times and classifications for %s: ",sprintf("%04d/%02d/%02d",$year,$month,$day) );
+	printf("Classifications are single character codes r,e,l,h,t,R,D,u,n:\n");
+	printf("\tr\t=\trockfall / RF\n");
+	printf("\tl\t=\tlong-period earthquake / LP\n");
+	printf("\tt\t=\tvolcano-tectonic earthquake / VT\n");
+	printf("\th\t=\thybrid earthquake (mix of VT and LP)\n");
+	printf("\te\t=\tlong-period rockfall (LP precedes RF)\n");
+	printf("\tR\t=\tRegional earthquake (tectonic, but not volcanic, usually > 15 km from volcano)\n");
+	printf("\tD\t=\tTeleseismic (Distal) earthquake (usually > 200 km from volcano)\n");
+	printf("\tn\t=\tNOISE\n");
+	printf("\tu\t=\tUNKNOWN\n");
+	printf("\n*** To see more options, give code \"m\" for more, and this will show all options from mulplt ***\n\n");
+	printf("\nExamples:\n");
+	printf("Hybrid at 01:40 - enter this as 0140h\n");
+	printf("Rockfall at 02:39 - enter this as 0239r\n");
+	printf("Regional at 06:47 - enter this as 0647R\n\n");
+	printf("tremor at 08:16 - enter this as 0816m - this will show all options from mulplt, which includes tremor\n\n");
+	printf("*** To quit this day, enter q ***\n\n");
+
+	while (1) {
+		printf("\n\nEnter next event :");
+		my ($eventhour, $eventminute);
+		my $class = "LV";
+		my $subclass = "u"; # defaults
+		my $eventcode = <STDIN>;
+		chomp($eventcode);
+		my $valid_event = 0; # false
+		last if ($eventcode eq "q");
+		if (length($eventcode)==5) {
+			$eventhour = substr($eventcode, 0, 2);
+			$eventminute = substr($eventcode, 2, 2);
+			$eventclass = substr($eventcode, 4, 1);
+			
+			if ($eventhour >= 0  and $eventhour <= 23) {
+				if ($eventminute >= 0  and $eventminute <= 59) {
+
+					if ($eventclass eq "r" or $eventclass eq "e" or $eventclass eq "l" or $eventclass eq "h" or $eventclass eq "t") {
+						$subclass = $eventclass;
+						$valid_event = 1;
+					} elsif ($eventclass eq "R" or $eventclass eq "D") {
+						$class = $eventclass;
+						$subclass = "";
+						$valid_event = 1;
+					} elsif ($eventclass eq "m") {
+						printf("\nDisplaying more options from mulplt:\n");
+						system("cat /shares/gly4930.018f19.gt/seisan/DAT/VOLCANO.DEF");
+						printf("\nEnter code from second column of list above, e.g. vt, tremor, pf: \n");
+						$subclass = <STDIN>;
+						chomp($subclass);
+						$valid_event = 1;
+					} else {
+						if (prompt_yn("Class $eventclass not recognized. Are you sure it is correct? ")) {
+							$subclass = $eventclass;
+							$valid_event = 1;
+						} else {
+							printf("OK. Ignoring this event. Please re-enter it.\n");
+						}
+					}
+				} else {
+					printf("Invalid minute. Ignoring this event. Please re-enter it.\n");
+				}
+			} else {
+				printf("Invalid hour. Ignoring this event. Please re-enter it\n");
+			}
+		} else {
+			printf("The input should be exactly 5 characters long. 2 for hour, 2 for minute, and 1 for the class.\nIgnoring this event. Please re-enter it\n");
+		}
+		if ($valid_event) {
+			# now add 4 hours to time from local to UTC
+			$dtyear = $year; $dtmonth  = $month; $dtday = $day; $dthour = $eventhour; $dtminute = $eventminute;
+			unless ($time_corrected) {
+	 			$dthour = $dthour + 4;
+				@dayspermonth = qw(31 28 31 30 31 30 31 31 30 31 30 31);
+				$dayspermonth[1] = 29 if (($dtyear % 4) == 0);	
+				if ($dthour>23) {
+					$dtday++;
+					$dthour-=24;
+					if ($dtday>$dayspermonth[$dtmonth-1]) {
+						$dtmonth++;
+						$dtday=1;
+						if ($dtmonth>12) {
+							$dtyear++;
+							$dtmonth=1;
+						}
+					}
+				}
+			}
+	#			# now add 4 hours to time from local to UTC
+	#		my $dt = DateTime->new( year => $year, month => $month, day => $day, hour => $eventhour, minute => $eventminute, second => 0);
+	#		unless ($time_corrected) {
+	#			$dt->add( hours => 4);
+				printf("\n *** Converting to UTC (adding 4 hours) ***\n");
+	#		}
+
+			#printf("\nDate: ".$dt->year."/%02d/%02d Time: %02d:%02d ",$dt->month,$dt->day,$dt->hour,$dt->minute);
+			printf("\nDate: ".$dtyear."/%02d/%02d Time: %02d:%02d ",$dtmonth,$dtday,$dthour,$dtminute);
+			printf("Class: $class Subclass: $subclass \n\n");
+
+			if(prompt_yn("Does this look correct? Ready to create S-file ?")) {
+				#print("~/bin/event_without_waveform.pl ".$dt->year." ".$dt->month." ".$dt->day." ".$dt->hour." ".$dt->minute." 0 $class $subclass\n");
+				print("classify_without_seisan.pl ".$dtyear." ".$dtmonth." ".$dtday." ".$dthour." ".$dtminute." 0 $class $subclass\n");
+				#system("~/bin/event_without_waveform.pl ".$dt->year." ".$dt->month." ".$dt->day." ".$dt->hour." ".$dt->minute." 0 $class $subclass");
+				system("classify_without_seisan.pl ".$dtyear." ".$dtmonth." ".$dtday." ".$dthour." ".$dtminute." 0 $class $subclass");
+			} else {
+				printf("OK. You think something is wrong. Ignoring this event. Please re-enter it.\n");
+			}	
+		} else {
+			printf("Invalid event. Try entering again\n");
+		}
+	}
+
+
+	unless(prompt_yn("Another day ?")) {
+		die("Quitting\n");
+	}
+	
+	printf("\n\n\n");
+}
+
+sub prompt {
+  my ($query) = @_; # take a prompt string as argument
+  local $| = 1; # activate autoflush to immediately show the prompt
+  print $query;
+  chomp(my $answer = <STDIN>);
+  return $answer;
+}
+
+sub prompt_yn {
+  my ($query) = @_; # take a prompt string as argument
+  my $answer = prompt("$query (Y/N): ");
+  return lc($answer) eq 'y';
+}

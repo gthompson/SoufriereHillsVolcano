@@ -1,0 +1,109 @@
+03.08.01  SUDS2CSS v5.0 - long filenames at output, uses auxiliary program RENF
+          SG2SUDS v2.0 - new option (/C4)
+16.05.01  new program SUDS2CSS v4.0
+01.05.01  SUDS2SGA v4.0 (/D option), new program RENCHGSE, GSE2GSE-small change
+01.04.01  ConvSeis v6.0
+          TOOLS.LIB rebuilt (to include dirfilw).
+20.02.01  New programs ASAC2SUDv1.1, SUD2ASACv2.0, ASC2ASACv1.1, CSS2GSEv2.1.
+20.02.01  HYPO2GSE v2.1, handles locations with region names for local events
+          SUDS2SGA v2.33, small correction for /G option
+31.12.00  GSE2GSE v5.9 - replace blanks by zeros in time format (WID2 header)
+          Small change in EVL2SUDS v1.2 (do not check if 'Local/Regional' event)
+01.11.00  Update K22SUDS (v6.2) to be compatible with KW2ASC v2.11.
+01.08.00  Correction in EVL2SUDS (v1.2) for Y2K bug.
+11.07.00  Small change in FILTSUDS (v6.2) to handle 256 channels.
+30.06.00  Small changes in READSUDS routines (v2.3), TOOLS.LIB rebuilt.
+          K22SUDS v6.1 now recognizes EpiSensors.
+15.06.00  SUDSTOOL v5.3, small change in output format to accomodate long files.
+26.05.00  K22SUDS v6.0, assumes velocity motor constant in header of K2 files
+          given in V/m/s.
+19.05.00  SUDSRW v4.0 program now handles integer*2 data for output, as well.
+          New Getsudsi v2.3, added new routines Readsud2 v2.2 and Wrisud2 v2.2
+          for handling i*2 datatype. Updated Tools.lib.
+08.05.00  New program CSS2SGA v2.1 and batchfiles CSS2SUD1, CSS2SUD3.
+20.04.00  HYPO2GSE v2.0, correction for a Y2K bug.
+08.02.00  New Tools.lib corrected for a Y2K bug, new SECNR and STD routines.
+          Programs WV2EQ and WV2GSE recompiled.
+03.11.99  Correction in SUDXTR to account for Y2K problem and wrong F (coda).
+15.09.99  Small corrections in the routines GETTIME, GETNRDAY, GETMDAY, SECNR
+to correctly account for leap years. Change to WRITESUD, new version is v2.2 .
+The TOOLS library was rebuilt. All programs were recompiled.
+New K22SUDS v5.1 to handle new header.
+22.08.99
+New SUDS2GSE v5.0; multiple channels selection in command line, incl. wildcards
+27.05.99
+New SG2SUDS v1.2; correction in writing the SUDS_CHANSET structure.
+25.05.99
+New program ASC2SUDS v1.1 to convert PITSA ASCII files to PC-SUDS format.
+15.05.99  SUDXTR v2.2 : amplitude is written on 7 digits (col.41-47) in the PHA
+file (older versions used only 4 digits)
+14.05.99
+Small change in subroutine WRITESUD v2.2, new TOOLS.LIB and recompiled SUDSRW.
+10.05.99
+New K22SUDS v5.0 to handle very long files.
+17.07.98
+New K22SUDS v4.5 to handle files with non-consecutive data channels.
+12.03.98
+New SUDS2EQ v4.0; now it also reads SUDS files with long integers data format.
+New version for TOOLS.LIB to support next millennium.
+23.02.98
+Small correction in DC offset removal in program SUDS2SGA; small change in
+SG2SG for the default output filename.
+18.02.98
+Change in the default naming convention of K22SUDS; option to integrate
+introduced in FILTSUDS. These changes documented in the User's Guide.
+12.02.98
+New version of K22SUDS; small change in SG2SG; utiliy program FIXFNAME added.
+Version number changed from 4.8 to 4.9. New User's Guide.
+29.07.97
+Small correction in SUDS2SGA, GSE2GSE v5.5; new version SUDSTOOL v5.1.
+New utility program SUDSRW. New Manual for version 4.8.
+Added GSE2GSE v6.0, compiled with Lahey 32-bit Fortran 77, max.data vector 99000.
+19.06.1997:
+Addition of 1 option and small correction in K22SUDS.
+13.06.1997:
+New program SG2SUDS. Small correction in SUDS2SGA and FILTSUDS.
+11.06.1997:
+K22SUDS supports new headers and 2 new options. New TOOLS.LIB version.
+15.04.1997:
+Small correction in SUDS2GSE, FILTSUDS, SUDS2SGA and in K22SUDS.
+19.03.1997:
+Addition of utility HYPO2GSE, small correction in GSE2GSE, small changes in
+the manual; version number changed from 4.7 to 4.71
+27.01.1997:
+Addition of 2 options in K22SUDS, 1 option in FILTSUDS, 1 option in SUDS2SGA
+and of K2SUDS batch file (not documented in the manual).
+16.01.1997:
+Update of GSE2GSE (correction for date handling).
+18.12.1996:
+Two converters (SUDS2SGA and K22SUDS) and two utilities (EVL2SUDS and
+SUDSINST) were added.
+Small additions in SUDSTOOL.
+The package version number was changed from 4.6 to 4.7, the manual was
+changed too.
+
+11.11.1996:
+Two new utilities were added: SUDXTR and SUDSTOOL. In addition,
+- SUDS2GSE can now read instrument information from a file SUDS2GSE.INI;
+- FILTSUDS handles now better the ChanSet structure
+- GSE2GSE supports now the GSE2.0 format.
+The package version number was changed from 4.5 to 4.6, the manual was
+changed too.
+
+08.01.1996:
+CONVSEIS was updated (correction of initial
+time handling in the programs GSE2SG and GSE2SUDS, as well as
+output format correction in program SUDS2GSE in case of
+long integer (I*4) data).
+The package version number was changed from v4.3 to v4.4, but the
+manual remains the same. So, it is neccesary to copy only
+CONV1V44.LZH and CONV3V44.LZH, because CONV2V44.LZH is
+the same as CONV2V43.LZH.
+
+28.02.1996:
+CONVSEIS was updated: small bugs fixed in FILTSUDS
+(at the option for skipping channels), GSE2SG, V12SGA and TIM2SEGY.
+A new Utility was added: V22V2.
+The package version number was changed from v4.4 to v4.5 and
+the manual was improved.
+

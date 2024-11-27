@@ -1,0 +1,23 @@
+; HypoMap annotation file
+
+; 0 = Black, 1 = Blue, 2 = Green, 3 = Cyan
+; 4 = Red, 5 = Magenta, 6 = Brown, 7 = White
+; 8 = Grey, 9 = Light Blue, 10 = Light Green, 11 = Light Cyan
+; 12 = Light Red, 13 = Light Magenta, 14 = Yellow, 15 = Bright White
+
+;Lat      Long     Size Angle Color Text...
+;------------------------------------------------------------------------------
++40.7900 -124.1670 0.1    0.0   3   Eureka
++40.5800 -124.2580 0.1    0.0   3   Ferndale
++38.6000 -121.5000 0.1    0.0   3   Sacramento
++37.7600 -122.3900 0.1    0.0   3   San Francisco
++36.9700 -122.0000 0.1    0.0   3   Santa Cruz
++36.6000 -121.9000 0.1    0.0   3   Monterey
++35.9500 -120.5000 0.1    0.0   3   Parkfield
++34.0600 -118.1670 0.1    0.0   3   Los Angeles
++34.2500 -116.3670 0.1    0.0   3   Landers
+
++36.0000 -122.5000 0.2  -60.0   1   Pacific Ocean
+;+36.2500 -120.7500 0.1  -48.0   4   San Andreas Fault
+;+37.3000 -122.0500 0.1  -48.0   4   San Andreas Fault
+;+37.5000 -121.8500 0.1  -52.0   4   Hayward Fault

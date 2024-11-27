@@ -1,0 +1,117 @@
+
+96130buu.evt
+K2 Header, Version. 1.30,  S/N 388   Stn: BUU
+ 12  channel unit, 3 channel(s) selected:  1 2 3
+Comment: BUC-UP PARAMETERS
+
+Main battery: 13.40V, charging, minimum alarm voltage: 12.0V
+   24 bit A/D with group delay: 190 msec
+Temperature:  24.2 deg.C
+
+Restart Source(s):
+  None Known.
+
+System Error(s):
+  None Known.
+
+
+Time Source: Internal GPS Receiver.
+Event Start Time: 1/30/1996 (30) 4:37:04.000
+Event Trigger Time: 1/30/1996 (30) 4:37:44.700
+   Samples per second:  200
+Duration:  116.000 seconds, 1160 frames
+
+  Pre-event:  40 seconds.
+  Minimum runtime:  70 seconds.
+  Post event:  30 seconds.
+Digital Field Station OFF.
+Program versions:   sysBlk 0.00, bootBlk  1.03,
+                    appBlk 1.02,  dspBlk  6.03
+Instrument latitude: 44.346699 Degrees North
+Instrument longitude: 26.030001 Degrees East
+Instrument elevation: 75 Meters relative sea level.
+
+GPS latitude: 44.34 Degrees North
+GPS longitude: 26.03 Degrees East
+GPS altitude: 112 Meters relative sea level.
+
+Ch                    1                2                3
+  MaxPeak:       -0.0118661V     -0.0030953V     -0.0072515V
+   at seconds:       41.780           40.895           41.390
+  MinPeak:       -0.0145978V     -0.0081646V     -0.0104457V
+   at seconds:       41.415           40.480           40.740
+  Mean:           0.0000000V      0.0000000V      0.0000000V
+
+Ch                    1                2                3
+  Chan ID:           BUUL,            BUUV,            BUUT,
+  Sensors:        2g FBA (12)      2g FBA (12)      2g FBA (12)   
+                    s/n 37836       s/n 37837       s/n 37832
+  Displace, N:       0000,            0000,            0000,
+  Displace, E:       0000,            0000,            0000,
+  Displace, U:       0000,            0000,            0000,
+  Alt,Azi:         0,    0          0,    0          0,    0
+
+Ch                    1                2                3
+  Gain:               1                1                1
+  Fullscale         2.50V            2.50V            2.50V
+  Sensitivity:      1.249V/g         1.249V/g         1.251V/g
+  Damping:          0.65             0.65             0.64
+  NatFreq:         50.9Hz           52.3Hz           51.5Hz
+
+Ch                       1              2              3
+Sensor Response 1:      0.000          0.000          0.000
+Sensor Response 2:      0.000          0.000          0.000
+Sensor Response 3:      0.000          0.000          0.000
+Sensor Response 4:      0.000          0.000          0.000
+Sensor Response 5:      0.000          0.000          0.000
+Sensor Response 6:      0.000          0.000          0.000
+
+Ch                       1              2              3
+Trigger Threshold:     0.02%FS         0.02%FS         0.02%FS
+Detrigger Threshold:   0.02%FS         0.02%FS         0.02%FS
+Alarm Trig Threshold:  0.40%FS         0.40%FS         0.40%FS
+              Votes:     1              1              1
+
+Network Master.   Votes: undefined
+External Trigger:  OFF,   Votes: undefined
+Keyboard Trigger Votes: undefined
+Stream:   Votes to trigger: 2,   Votes to detrigger: 2
+
+GPS turn On interval:  60 minutes(s).
+GPS maximum On time:  15 minute(s)
+All event times are in local time.
+Clock Source: Internal GPS
+GPS Status byte decoded:
+   Currently checking for presence of GPS.
+GPS state of health byte [same as Acutime SOH byte]:
+  Doing position fixes.
+GPS updated the RTC 8 times since last reset.
+Drift Rate at last two RTC updates to UTC: -7 & 7 msec.
+Last GPS Update times were:
+  1/29/1996 (29) 16:57:08 & 1/29/1996 (29) 16:54:12.
+Last GPS TurnOn times were:
+  1/30/1996 (30) 04:03:01 & 1/30/1996 (30) 03:03:01.
+Last GPS Lock times were:
+   1/30/1996 (30) 04:09:37 & 1/30/1996 (30) 04:07:06.
+Count of times GPS failed to lock
+    within gpsMaxTurnOnTime: 1
+
+
+Modem strings [ NULL TERMINATED ] from event header...
+ Initialization: ATE1Q0V1X4&C1&D%B5S7=55S11=55
+ Dialing Prefix: ATDP
+ Dialing Suffix: 
+ Hangup command: ATH0
+ AutoAnswerOn command: ATS0=3
+ AutoAnswerOff command: ATS0=0
+ Phone Numbers: 
+   1:    2:
+   3:    4:
+Automatic call out enabled.
+
+ Wait for connection 45 seconds.
+ Pause 10 seconds between calls.
+ Max dial attempts: 2.
+End K2 Header S/N 388, 96130buu.evt
+
+

@@ -1,0 +1,16 @@
+
+ RO_Network         >> NEAR EAST COAST OF HONSHU, JAP Q=C Automatic mode
+  DATE   ORIGIN-TIME  LATITUDE  LONGITUDE  DELTA    mb   RMS  NL/NM  BAZ
+ 990109   3: 5:18.88   38.708N   142.332E   77.8dg 5.2   .23s  6/ 6   46
+ ERRORS: (95%) 46.71s ERH =1345km            8.3dg  .5  IASP91_Tables  6
+  STATION                    ARRIVAL_TIME  WAVE   O-C    WT  St_mb  INFO
+   1 PPE                       3:17: 8.63  U P0    .09  1.00  5.92   .91
+   2 CFR                       3:17:11.72    P0   -.05  1.00  4.95  1.00
+   3 VRI                       3:17:13.04  U P1   -.13   .75  4.53   .23
+   4 BRD                       3:17:15.58  U P2   2.04*  .00         .00
+   5 MLR                       3:17:16.14  D P0   -.70   .50  4.98   .13
+   6 ISR                       3:17:16.92  D P0    .41   .50  5.56   .14
+   7 SNX                       3:17:18.71  U P0    .12  1.00  5.22   .78
+
+
+

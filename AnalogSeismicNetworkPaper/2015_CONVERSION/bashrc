@@ -1,0 +1,7 @@
+# Windows 16-bit
+export SUDS_TOP_DIR = "D:\\SUDS_DATA\\DMX_PHA"
+export PCSUDS_BIN = "D:\\PROGRAMS\\SUDS\\DMX_PHA"
+
+# Linux 64-bit
+export GSE_TOP_DIR = "/raid/data/suds/GSE"
+export VOLCANO_OBSPY = "~/src/volcano_obspy"

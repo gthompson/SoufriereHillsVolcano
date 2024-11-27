@@ -1,0 +1,10 @@
+#!C:\Perl\bin\perl.exe
+# This program applies IRIG.EXE to all DMX files
+# IRIG.EXE is a PC_SUDS utility that uses the IRIG time trace in a DMX file to correct the time of the SUDS file
+# This was needed because computer clocks drifted. The IRIG time trace contained encoded the seconds, minutes, hours and days from a 1-s GPS time signal
+#
+# The environment variables SUDS_TOP_DIR and SUDS_BIN need to be set
+# DMX files are demultiplexed SUDS files stored in year directories under SUDS_TOP_DIR
+# PC-SUDS utilities are executables stored under SUDS_BIN
+
+# Glenn Thompson 2015 University of South Florida

@@ -1,0 +1,194 @@
+!---  SUDS.FI -- FORTRAN function interfaces to SUDS library
+!---  09-Dec-1993, RB
+
+!---  PC-SUDS version 1.44
+
+!---  Include this file outside of any program unit in modules that
+!---  contain program units that contain calls to the following
+!---  functions.
+
+!---  Note that you should explicitly declare function return types in
+!---  program units that contain the calls, otherwise implicit typing may
+!---  improperly type the functions resulting in failed calls.
+
+!---  The symbolic constants; TRUE, FALSE, SUDS_READONLY, SUDS_READWRITE,
+!---  SUDS_APPEND, SUDS_CREATE and SUDS_EOF are defined in SUDS.INC.
+
+      ! Open a SUDS data file for I/O operations
+      ! Returns a valid file descriptor (>0) if successful, FALSE if error
+      INTERFACE TO INTEGER*2 FUNCTION suds_open [C]
+     +   ( filespec, access )
+         CHARACTER*128 filespec [REFERENCE]  ! Filespec of file to open
+         INTEGER*2 access     ! Access modes: SUDS_READONLY
+                              !               SUDS_READWRITE
+                              !               SUDS_APPEND
+                              !               SUDS_CREATE
+      END
+
+      ! Close a SUDS data file
+      ! Returns TRUE if success, FALSE if error
+      INTERFACE TO INTEGER*2 FUNCTION suds_close [C]
+     +   ( fd )
+         INTEGER*2 fd      ! File descriptor for file to be closed
+      END
+
+      ! Read next structure from SUDS data file
+      ! Returns TRUE if success, FALSE if error, SUDS_EOF if end-of-file
+      INTERFACE TO INTEGER*2 FUNCTION suds_read [C]
+     +   ( fd, suds )
+         INTEGER*2 fd      ! File descriptor
+         INTEGER*4 suds    ! Address of SUDS structure
+      END
+
+      ! Read data that follows a structure
+      ! Returns TRUE if success, FALSE if error, SUDS_EOF if end-of-file
+      INTERFACE TO INTEGER*2 FUNCTION suds_read_data [C]
+     +   ( fd, ptr, len )
+         INTEGER*2 fd      ! File descriptor
+         INTEGER*4 ptr     ! Address of user allocated buffer for data
+         INTEGER*4 len     ! Number of bytes to read
+      END
+
+      ! Write structure to SUDS data file
+      ! Returns TRUE if success, FALSE if error
+      INTERFACE TO INTEGER*2 FUNCTION suds_write [C]
+     +   ( fd, suds )
+         INTEGER*2 fd      ! File descriptor
+         INTEGER*4 suds    ! Address of SUDS structure
+      END
+
+      ! Write data that follows structures
+      ! Returns TRUE if success, FALSE if error
+      INTERFACE TO INTEGER*2 FUNCTION suds_write_data [C]
+     +   ( fd, ptr, len )
+         INTEGER*2 fd      ! File descriptor
+         INTEGER*4 ptr     ! Address of user allocated buffer for data
+         INTEGER*4 len     ! Number of bytes to write
+      END
+
+      ! Update last structure written
+      ! Returns TRUE if success, FALSE if error
+      INTERFACE TO INTEGER*2 FUNCTION suds_update [C]
+     +   ( fd, suds )
+         INTEGER*2 fd      ! File descriptor
+         INTEGER*4 suds    ! Address of SUDS structure
+      END
+
+      ! Commit written data to disk
+      ! Returns TRUE if success, FALSE if error
+      INTERFACE TO INTEGER*2 FUNCTION suds_flush [C]
+     +   ( fd )
+         INTEGER*2 fd      ! File descriptor
+      END
+
+      ! Returns position of previously read or written structure in file
+      ! Returns TRUE if success, SUDS_EOF if error
+      INTERFACE TO INTEGER*4 FUNCTION suds_pos [C]
+     +   ( fd )
+         INTEGER*2 fd      ! File descriptor
+      END
+
+      ! Returns absolute position in file
+      INTERFACE TO INTEGER*4 FUNCTION suds_abs_pos [C]
+     +   ( fd )
+         INTEGER*2 fd      ! File descriptor
+      END
+
+      ! Seeks a location in file
+      ! Returns TRUE if success, SUDS_EOF if error
+      INTERFACE TO INTEGER*2 FUNCTION suds_seek [C]
+     +   ( fd, pos )
+         INTEGER*2 fd      ! File descriptor
+         INTEGER*4 pos     ! Position, returned from suds_pos( )
+      END
+
+      ! Rewind a data file
+      ! Returns TRUE if success, FALSE if error
+      INTERFACE TO INTEGER*2 FUNCTION suds_rewind [C]
+     +   ( fd )
+         INTEGER*2 fd      ! File descriptor
+      END
+
+      ! Returns an error message if any library functions returns an error
+      ! condition, this function should be called imeadiately for a verbose
+      ! error message
+      INTERFACE TO CHARACTER*128 FUNCTION suds_get_err [C] ( )
+      END
+
+      ! Initializes a SUDS structure, default values in each element
+      INTERFACE TO SUBROUTINE suds_init [C]
+     +   ( suds )
+         INTEGER*4 suds    ! Address of SUDS structure
+      END
+
+!----- Time functions -------------------------------------------------
+      ! Returns system time as MS_TIME
+      INTERFACE TO REAL*8 FUNCTION get_mstime [C] ( )
+      END
+
+      ! Returns a string with MS_TIME in various formats
+      INTERFACE TO CHARACTER*128 FUNCTION list_mstime [C]
+     +   ( mstime, format )
+         REAL*8 mstime     ! Time
+         INTEGER*2 format  ! Format:
+                           !    0 = YYMMDDHHMMSSTTT
+                           !    1 = YYMMDDHHMMSS
+                           !    2 = YY MM DD HH MM SS.TTT
+                           !    3 = YY MM DD HH MM SS
+                           !    4 = YY/MM/DD HH:MM SS.TTT
+                           !    5 = YY/MM/DD HH:MM SS Day DOY
+                           !    6 = MMM DD, YYYY HH:MM SS.TTT GMT
+                           !    7 = MMM DD, YYYY HH:MM SS GMT
+                           !    8 = YY DOY HH:MM:SS.TTT
+                           !    9 = HHHHHHHH  (Time stamp as 8 Hex digits)
+                           !   10 = YY*DOY+HH:MM:SS.TTT
+                           !   11 = YY/MM/DD HH:MM SS.TTTTTT
+                           !   12 = YY*DOY+HH:MM:SS.TTTTTT
+      END
+
+      ! Returns year, month, day, hour, minute & second for MS_TIME
+      INTERFACE TO INTEGER*2 FUNCTION decode_mstime [C]
+     +   ( mstime, year, mon, day, hour, min, sec )
+         REAL*8 mstime                 ! Time to be decoded
+         INTEGER*2 year [REFERENCE]
+         INTEGER*2 mon [REFERENCE]
+         INTEGER*2 day [REFERENCE]
+         INTEGER*2 hour [REFERENCE]
+         INTEGER*2 min [REFERENCE]
+         REAL*8 sec [REFERENCE]
+      END
+
+      ! Returns MS_TIME variable for year, month, day, hour, minute & second
+      INTERFACE TO REAL*8 FUNCTION make_mstime [C]
+     +   ( year, mon, day, hour, min, sec )
+         INTEGER*2 year
+         INTEGER*2 mon
+         INTEGER*2 day
+         INTEGER*2 hour
+         INTEGER*2 min
+         REAL*8 sec
+      END
+
+      ! Returns day of year for month & day
+      INTERFACE TO INTEGER*2 FUNCTION yrday [C]
+     +   ( mon, day, leap )
+         INTEGER*2 mon
+         INTEGER*2 day
+         INTEGER*2 leap  ! TRUE = leap year, FALSE = normal year
+      END
+
+      ! Returns month & day for day of year
+      INTERFACE TO INTEGER*2 FUNCTION mnday [C]
+     +   ( doy, leap, mon, day )
+         INTEGER*2 doy   ! Day of year
+         INTEGER*2 leap  ! TRUE = leap year, FALSE = normal year
+         INTEGER*2 mon [REFERENCE]
+         INTEGER*2 day [REFERENCE]
+      END
+
+      ! Returns TRUE if year is a leap year, FALSE if not
+      INTERFACE TO INTEGER*2 FUNCTION isleap [C]
+     +   ( year, calendar )
+         INTEGER*2 year      ! Year in question
+         INTEGER*2 calendar  ! 0=Gregorian or modern, 1=Julian or old-style
+      END
