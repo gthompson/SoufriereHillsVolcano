@@ -1,7 +1,0 @@
-1             !+1 or -1=factor to multiply Pvert*Radial product,0=skip product
-70.           !Rotation angle
--1            !1=rotation angle is backaziumth,-1=azimuth,0=skip rotation
-2             !1=sign(sqrt(Pv*Pv+R*R),Pv*R);2=Pv*R;3=sign(sqrt(|Pv*R|),Pv*R)
-0 1           !1=input is ASCII (0=binary);1=output is ASCII (0=binary)
-2             !Decimation factor for output
-1. 1. 1.      !factors to multiply Z-, Y- and X-compoents
