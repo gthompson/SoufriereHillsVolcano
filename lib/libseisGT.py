@@ -512,7 +512,7 @@ def plot_seismograms(st, outfile=None, bottomlabel=None, ylabels=None):
     # loop over all stream objects
     colors = 'kgrb'
     channels = 'ZNEF'
-    linewidths = [0.25, 0.1, 0.1]
+    linewidths = [0.25, 0.1, 0.1, 0.25]
     for i in range(n):
         # add new axes handle for new subplot
         #axh.append(plt.subplot(n, 1, i+1, sharex=ax))
@@ -538,6 +538,7 @@ def plot_seismograms(st, outfile=None, bottomlabel=None, ylabels=None):
             y = this_trace.data
             
             # PLOT THE DATA
+            print(i, line_index)
             axh[i].plot(t, y, linewidth=linewidths[line_index], color=colors[line_index])
             axh[i].autoscale(enable=True, axis='x', tight=True)
    

@@ -86,6 +86,7 @@ class SDSobj():
         if not endday:
             endday = startday + 86400
         while thisday<endday:
+            #print(thisday)
             nslc_tuples = self.client.get_all_nslc(sds_type='D', datetime=thisday) 
             for nslc in nslc_tuples:
                 trace_id = '.'.join(nslc)
@@ -99,19 +100,20 @@ class SDSobj():
         return sorted(trace_ids)
  
 
-    def _sds_percent_available_per_day(self, startday, endday, skip_low_rate_channels=True, trace_ids=None, speed=1 ):
+    def _sds_percent_available_per_day(self, startday, endday, skip_low_rate_channels=True, trace_ids=None, speed=3 ):
         # speed can be 1, 2, or 3. The higher the speed, the less accurate the results.
-    
+        #print(trace_ids)
         if not trace_ids:
             trace_ids = self._sds_get_nonempty_traceids(startday, endday)
         if len(trace_ids)==0:
+            print('we have no trace_ids')
             return
         else:
             print(trace_ids)
     
         lod = []
         thisday = startday
-   
+        print(startday, endday, thisday)
         while thisday<endday:
             print(thisday.date) #, ' ',newline=False)
             thisDict = {}
@@ -137,7 +139,7 @@ class SDSobj():
                     this_percent = 100*self.client.get_availability_percentage(net, sta, loc, chan, thisday, thisday+86400)[0]
                 
                 thisDict[trace_id] = this_percent
-            
+            #print(thisDict)
             lod.append(thisDict)
             thisday = thisday + 86400
         availabilityDF = pd.DataFrame(lod)

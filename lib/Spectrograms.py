@@ -33,10 +33,6 @@ def consecutive_true_values(A):
     return results
 '''    
 
-class dailySpectrogram:
-    def __init__(self):
-        """
-        """
 
 def numpyarrays2dataframe(T,F,S):
     df = pd.DataFrame(np.transpose(S), columns=[str(thisf) for thisf in F])
@@ -371,7 +367,8 @@ class icewebSpectrogram:
                 ax[c*2+1].set_xticklabels([])
 
             # add a ylabel
-            ax[c*2+1].set_ylabel('     ' + tr.stats.station + '.' + tr.stats.channel, rotation=80)
+            #ax[c*2+1].set_ylabel('     ' + tr.stats.station + '.' + tr.stats.channel, rotation=80)
+            ax[c*2+1].set_ylabel('     ' + tr.id, rotation=70, fontsize=10)
         
             # Plot colorbar
             if add_colorbar:
@@ -492,6 +489,7 @@ class icewebSpectrogram:
                     ind = np.argwhere(ynew>Athresh)
                     tr.stats.spectrum['bw_min'] = xnew[ind[0]]
                     tr.stats.spectrum['bw_max'] = xnew[ind[-1]]
+                    print(f'{tr.id} bandwidth: {tr.stats.spectrum["bw_min"]}-{tr.stats.spectrum["bw_max"]}')
                 except:
                     print('Could not compute bandwidth')
             for key in tr.stats.spectrum:
@@ -502,7 +500,8 @@ class icewebSpectrogram:
 
                        
     
-    def plot_amplitude_spectrum(self):
+    def plot_amplitude_spectrum(self, normalize=False, title=None):
+        '''
         fig, ax = plt.subplots(len(self.stream), 1);
         for c, tr in enumerate(self.stream):
             if not 'spectrum' in tr.stats:
@@ -515,6 +514,27 @@ class icewebSpectrogram:
             ax[c].set_title(tr.id)       
         A = np.array(tr.stats.ssam.A)
         f = tr.stats.ssam.f
+        '''
+        
+        fig, ax = plt.subplots(1, 1);
+        for c, tr in enumerate(self.stream):
+            if not 'spectrum' in tr.stats:
+                continue
+            A = tr.stats.spectrum.A   
+            F = tr.stats.spectrum.F
+            if normalize:
+            	A = A/max(A)
+            ax.semilogy(F,  A, label=tr.id);
+        if normalize:
+        	ax.set_ylabel('Normalized Spectral Amplitude')
+        else:
+        	ax.set_ylabel('Spectral Amplitude')
+        ax.set_xlabel('Hz')
+        if title:
+        	ax.set_title(title)
+        ax.grid()
+        ax.legend()       
+       
 
     def compute_band_ratio(self, freqlims=[0.8, 4.0, 18.0], plot=True):
         for tr in self.stream:
