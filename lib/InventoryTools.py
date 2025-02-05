@@ -151,7 +151,7 @@ def _add_station(sta1, sta):
     print('Adding new station %s' % sta.code)
     sta1.append(sta)            
             
-def merge_inventories(inv1, inv2):
+def merge_inventories(inv1, inv2): # obsolete - can just add inventories
     netcodes1 = [this_net.code for this_net in inv1.networks]
     for net2 in inv2.networks:
         if net2.code in netcodes1:

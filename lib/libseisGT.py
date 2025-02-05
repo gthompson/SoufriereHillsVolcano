@@ -14,7 +14,7 @@ warnings.filterwarnings("ignore")
 import matplotlib.pyplot as plt
 import datetime
 #from sys import exit
-from obspy.signal.trigger import z_detect, trigger_onset
+from obspy.signal.trigger import z_detect, trigger_onset, coincidence_trigger
 from obspy.geodetics.base import gps2dist_azimuth, kilometers2degrees
 from obspy.taup import TauPyModel
 
@@ -43,13 +43,18 @@ def update_trace_filter(tr, filtertype, freq, zerophase):
         tr.stats.filter["freqmax"] = min([freq, tr.stats.filter["freqmax"]])
     tr.stats.filter['zerophase'] = zerophase
 
-def clip_trace(tr, AMP_LIMIT = 10000000):     
+def clip_trace(tr, AMP_LIMIT = 1e10, fill_value=None):     
 # function tr = clip_trace(tr, maxamp)
     # remove absurdly large values
-    a = tr.data
+    '''a = tr.data
     np.clip(a, -AMP_LIMIT, AMP_LIMIT, out=a)
     np.where(a == AMP_LIMIT, 0, a)
-    tr.data = a    
+    tr.data = a    '''
+    if not fill_value:
+        fill_value = np.nanmedian(tr.data)
+    tr.data[tr.data > AMP_LIMIT] = fill_value
+    tr.data[tr.data < -AMP_LIMIT] = fill_value     
+
     
 def smart_merge_traces(trace_pair):
     """
@@ -111,6 +116,35 @@ def unpad_trace(tr):
     if 'originalStartTime' in s:
         tr.trim(starttime=s.originalStartTime, endtime=s.originalEndTime, pad=False)
         add_to_trace_history(tr, 'unpadded') 
+
+def remove_single_sample_spikes(trace):
+    # Parameters
+    threshold = 10  # Threshold for identifying large differences (spikes)
+    try:
+        trace_std = np.nanstd(trace.data)
+    except:
+        try:
+            trace_std = np.std(trace.data)
+        except:
+            return
+
+    # Step 1: Calculate the absolute differences between consecutive points
+    diff_prev = np.abs(np.diff(trace.data))  # Difference with the previous point
+    diff_next = np.abs(np.diff(trace.data[1:], append=trace.data[-1]))  # Difference with the next point
+
+    # Step 2: Identify spikes where the difference is larger than the threshold
+    spikes = (diff_prev > trace_std * threshold) & (diff_next > trace_std * threshold)
+    spikes = np.append(spikes, np.array(False))
+
+
+    # Step 3: Replace spikes with the average of previous and next points
+    # Use boolean indexing to replace the spikes
+    smoothed_data = np.copy(trace.data)
+    #smoothed_data[1:-1][spikes] = (trace.data[:-2][spikes] + trace.data[2:][spikes]) / 2
+    smoothed_data[spikes] = trace_std
+
+    # Update the trace data with the smoothed data
+    trace.data = smoothed_data        
     
         
 def clean_trace(tr, taperFraction=0.05, filterType="bandpass", freq=[0.1, 20.0], corners=2, zerophase=True, inv=None):
@@ -124,6 +158,9 @@ def clean_trace(tr, taperFraction=0.05, filterType="bandpass", freq=[0.1, 20.0],
     
     # remove absurd values
     clip_trace(tr) # could add function here to correct for clipping - algorithms exist
+
+    # remove single sample spikes
+    remove_single_sample_spikes(tr)
     
     # save the start and end times for later 
     startTime = tr.stats.starttime
@@ -157,8 +194,19 @@ def clean_trace(tr, taperFraction=0.05, filterType="bandpass", freq=[0.1, 20.0],
     
     # clean
     if not 'detrended' in tr.stats.history:
-        tr.detrend('linear')
+        try:
+            tr.detrend('linear')
+            
+        except:
+            try:
+                tr.data = tr.data - np.nanmedian(tr.data)
+                if np.ma.is_masked(tr.data):
+                    # Replace masked values with 0
+                    tr.data = tr.data.filled(0)   
+            except:
+                tr.detrend('simple')
         add_to_trace_history(tr, 'detrended')
+    
         
     if not 'tapered' in tr.stats.history:
         tr.taper(max_percentage=max_fraction, type="hann") 
@@ -374,26 +422,25 @@ def Stream_min_starttime(all_traces):
 
 def removeInstrumentResponse(st, preFilter = (1, 1.5, 30.0, 45.0), outputType = "VEL", inventory = None):  
     """
-    Remove instrument response - assumes inventories have been added to Stream object
+    Remove instrument response - note inventories may have been added to Stream object
     Written for Miami Lakes
     
-    This function may be obsolete. Use clean_trace instead.
+    This function may be obsolete. Could improve clean_trace instead.
+
+    Note that taper_fraction=0.05, water_level=60 are other default parameters
     """
     try:
-        st.remove_response(output=outputType, pre_filt=preFilter)
+        st.remove_response(output=outputType, pre_filt=preFilter, inventory = None)
     except:
         for tr in st:
             try:
-                if inventory:
-                    tr.remove_response(output=outputType, pre_filt=preFilter, inventory=inventory)
-                else:
-                    tr.remove_response(output=outputType, pre_filt=preFilter)
+                tr.remove_response(output=outputType, pre_filt=preFilter, inventory=inventory)
             except:
                 print("- Not able to correct data for %s " %  tr.id)
                 st.remove(tr)
     return
 
-def detect_network_event(st, minchans=None, threshon=3.5, threshoff=1.0, sta=0.5, lta=5.0, pad=0.0):
+def detect_network_event(st_in, minchans=None, threshon=3.5, threshoff=1.0, sta=0.5, lta=5.0, pad=0.0, best_only=False):
     """
     Run a full network event detector/associator 
     
@@ -421,25 +468,44 @@ def detect_network_event(st, minchans=None, threshon=3.5, threshoff=1.0, sta=0.5
     Any trimming of the Stream object can then by done with trim_to_event.
  
     """
-    from obspy.signal.trigger import coincidence_trigger
+    st = st_in.copy()
     if pad>0.0:
         for tr in st:
             pad_trace(tr, pad)
             
     if not minchans:
-        N = len(st)
-        minchans = int(N/3)
-        if minchans<3:
-            minchans=N
+        minchans = max(( int(len(st)/2), 2)) # half the channels or 2, whichever is greater
     print('minchans=',minchans)
-    trig = coincidence_trigger("recstalta", threshon, threshoff, st, minchans, sta=sta, lta=lta, details=True) # 0.5s, 10s
-    ontimes = [t['time'] for t in trig]
-    offtimes = [t['time']+t['duration'] for t in trig]
-    
+    trig = coincidence_trigger("recstalta", threshon, threshoff, st, minchans, sta=sta, lta=lta, max_trigger_length=180, delete_long_trigger=True, details=True) # 0.5s, 10s
+
+
+    if best_only:
+        best_trig = {}
+        best_product = 0
+
+        for this_trig in trig:
+            thistime = UTCDateTime(this_trig['time'])
+            if thistime > st[0].stats.starttime:
+                this_product = this_trig['coincidence_sum']*this_trig['duration']
+                if this_product > best_product:
+                    best_trig = this_trig
+                    best_product = this_product
+        return best_trig  
+    else:
+        ontimes = []
+        offtimes = []
+        for this_trig in trig:
+            thistime = UTCDateTime(this_trig['time'])
+            if thistime > st[0].stats.starttime:
+                ontimes.append(this_trig['time'])
+                offtimes.append(this_trig['time']+this_trig['duration'])
+        return trig, ontimes, offtimes
+    """
     if pad>0.0:
         for tr in st:
-            unpad_trace(tr)        
-    return trig, ontimes, offtimes
+            unpad_trace(tr)  
+    """      
+    
     
 
 def add_channel_detections(st, lta=5.0, threshon=0.5, threshoff=0.0, max_duration=120):
