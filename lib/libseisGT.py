@@ -117,9 +117,9 @@ def unpad_trace(tr):
         tr.trim(starttime=s.originalStartTime, endtime=s.originalEndTime, pad=False)
         add_to_trace_history(tr, 'unpadded') 
 
-def remove_single_sample_spikes(trace):
+def remove_single_sample_spikes(trace, threshold=10):
     # Parameters
-    threshold = 10  # Threshold for identifying large differences (spikes)
+    #threshold = 10  Threshold for identifying large differences (spikes)
     try:
         trace_std = np.nanstd(trace.data)
     except:
@@ -287,6 +287,43 @@ def _get_calib(tr, this_inv):
 #######################################################################
 ##                Stream tools                                       ##
 #######################################################################
+def piecewise_detrend(st, null_value=0, fill_value=np.nan, detrend='linear', verbose=False): 
+    # takes a Stream object nominally from an SDSclient that has gaps marked by zeros, and applies
+
+    if not detrend and not highpass:
+        return
+
+    # split into contiguous segments
+    isSplit = False
+    for tr in st:
+        if np.any(tr.data == null_value):
+            tr.data = np.ma.masked_where(tr.data == null_value, tr.data)
+            all_traces = tr.split()
+            if verbose:
+                print(f'{tr.id} split into {len(all_traces)} traces')
+            isSplit=True
+            all_traces.detrend(detrend)
+            all_traces.merge(method=0, fill_value=fill_value)
+            print(f'merged again. stream now contains {len(all_traces)} traces')
+            if len(all_traces) == 1:
+                tr = all_traces.copy()
+            else:
+                st.remove(tr)
+                for newtr in all_traces:
+                    st.append(newtr)
+
+    # detrend
+    #if detrend:
+    #    st.detrend(detrend)        
+    
+    # recombine
+    #if isSplit:
+    #    st.merge(method=0, fill_value=fill_value)
+    #    if verbose:
+    #        print('merged again. stream now contains {len(st)} traces')
+
+
+
 
 def get_seed_band_code(sr, shortperiod = False):
     bc = '_'
