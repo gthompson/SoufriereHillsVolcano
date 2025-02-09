@@ -278,8 +278,10 @@ def plot_DSAM(dsamobj, gridobj, nodenum, metric='mean', DEM_DIR=None):
     plt.figure()
     plt.bar(x, y, width=1.0)
     fig = montserrat_topo_map(show=False, zoom_level=0, inv=None, add_labels=False, centerlon=-62.177, centerlat=16.711, contour_interval=100, topo_color=True, resolution='03s', DEM_DIR=DEM_DIR)
-    ax = fig.axes()
-    ax[0].plot(gridobj.gridlon[nodenum], gribobj.gridlat[nodenum], 'o')
+    print('is figure?', isinstance(fig, pygmt.Figure))
+    #ax = fig.axes()
+    #ax[0].plot(gridobj.gridlon[nodenum], gribobj.gridlat[nodenum], 'o')
+    fig.plot(gridobj.gridlon[nodenum], gridobj.gridlat[nodenum], 'o')
 
 # pretty sure that i had a different version here that worked. this one is crashing because trying to plot nodenum 100 of a 100-length tr.data
 # what I really should be plotting is the corrections at node 100
