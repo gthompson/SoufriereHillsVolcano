@@ -9,6 +9,34 @@ import numpy as np
 import pandas as pd
 import glob
 
+
+def remove_empty_traces(stream):
+    """Removes empty traces, traces full of zeros, and traces full of NaNs from an ObsPy Stream."""
+    cleaned_stream = Stream()  # Create a new empty Stream
+
+    for trace in stream:
+        # Check if trace is empty (npts == 0)
+        if trace.stats.npts == 0:
+            continue
+        
+        # Check if all values are zero
+        if np.all(trace.data == 0):
+            continue
+
+        # Check if all values are NaN
+        if np.all(np.isnan(trace.data)):
+            continue
+
+        # If trace passes all checks, add it to the cleaned stream
+        cleaned_stream += trace
+
+    return cleaned_stream
+
+# Example usage:
+# st = some_obspy_stream
+# st = remove_empty_traces(st)
+
+
 class SDSobj():
     # Call like:
     # myclient = SDS.SDSobj(SDS_TOP, sds_type='D', format='MSEED')
@@ -27,19 +55,21 @@ class SDSobj():
 
         st = Stream()
         for trace_id in trace_ids:
+            this_st = Stream()
             net, sta, loc, chan = trace_id.split('.')
             if chan[0]=='L' and skip_low_rate_channels:
                 print(trace_id,' skipped')
                 continue
             if speed==1:
                 sdsfiles = self.client._get_filenames(net, sta, loc, chan, startt, endt)
-                #print(sdsfiles)
-                this_st = Stream()
+                print(sdsfiles)
+                
                 for sdsfile in sdsfiles:
                     if os.path.isfile(sdsfile):
                         if verbose:
                             print('st = read("%s")' % sdsfile)
                         that_st = read(sdsfile)
+                        print(f'{sdsfile} -> {that_st}')
                         #that_st.merge(method=1,fill_value=0)
                         that_st.merge(method=0) # mark overlaps that disagree with missing samples, and do not fill 
                         #print(sdsfile, that_st)
@@ -48,7 +78,9 @@ class SDSobj():
             elif speed==2:
                 this_st = self.client.get_waveforms(net, sta, loc, chan, startt, endt, merge=-1) # use method=0? 
             if this_st:
-                this_st.trim(startt, endt)              
+                print(this_st)
+                this_st.trim(startt, endt)   
+                #remove_empty_traces(this_st)         
             for tr in this_st:
                 st.append(tr)
         if st:

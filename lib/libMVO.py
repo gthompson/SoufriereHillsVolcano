@@ -4,7 +4,7 @@ import numpy as np
 import os
 import pandas as pd
 from glob import glob
-from obspy import read_inventory, read, Stream
+from obspy import read_inventory, read, Stream, Trace
 import matplotlib.pyplot as plt
 import cartopy.crs as crs
 import cartopy.feature as cf
@@ -346,13 +346,24 @@ def metrics2df(st):
 
 
 def fix_sample_rate(st, Fs=75.0):
-    for tr in st:
+    if isinstance(st, Stream):
+        for tr in st:
+            fix_sample_rate(tr, Fs=75.0)  # Recursive call for each Trace
+    elif isinstance(st, Trace):
+        tr = st
         if tr.stats.sampling_rate > Fs * 0.99 and tr.stats.sampling_rate < Fs * 1.01:
-            tr.stats.sampling_rate = Fs
+            tr.stats.sampling_rate = Fs 
+    else:
+        raise TypeError("Input must be an ObsPy Stream or Trace object.")    
+
 
 #from obspy.core.utcdatetime import UTCDateTime
 def fix_times(st):
-    for tr in st:
+    if isinstance(st, Stream):
+        for tr in st:
+            fix_sample_rate(tr, Fs=75.0)  # Recursive call for each Trace
+    elif isinstance(st, Trace):
+        tr = st
         yyyy = tr.stats.starttime.year
         if yyyy == 1991 or yyyy == 1992 or yyyy == 1993: # digitize
             # OS9/Seislog for a while subtracted 8 years to avoid Y2K problem with OS9
@@ -360,7 +371,11 @@ def fix_times(st):
             tr.stats.starttime._set_year(yyyy+8)
         if yyyy < 1908:
             # getting some files exactly 100 years off
-            tr.stats.starttime._set_year(yyyy+100)                       
+            tr.stats.starttime._set_year(yyyy+100) 
+    else:
+        raise TypeError("Input must be an ObsPy Stream or Trace object.")  
+
+                      
             
 # bool_ASN: set True only if data are from MVO analog seismic network
 def read_monty_wavfile_and_correct_traceIDs(wavpath, bool_ASN=False):
