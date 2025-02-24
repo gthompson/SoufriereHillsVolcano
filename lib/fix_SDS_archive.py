@@ -6,6 +6,7 @@ from obspy import read
 import matplotlib.pyplot as plt
 import sys
 import time
+from libseisGT import fix_trace_id, check_read_write
 
 def get_processed_dirs(LOG_FILE):
     """Reads the log file and returns a set of already processed directories."""
@@ -19,25 +20,6 @@ def save_processed_dir(directory, LOG_FILE):
     with open(LOG_FILE, "a") as f:
         f.write(directory + "\n")
 
-# Band code lookup table based on IRIS SEED convention
-BAND_CODE_TABLE = {
-    (0.0001, 0.001): "R",  # Extremely Long Period (0.0001 - 0.001 Hz)   
-    (0.001, 0.01): "U",  # Ultra Low Frequency (~0.01 Hz)
-    (0.01, 0.1): "V",  # Very Low Frequency (~0.1 Hz)
-    (0.1, 2): "L",   # Long Period (~1 Hz)
-    (2, 10): "M",  # Mid Period (1 - 10 Hz)
-    (10, 80): "B", # Broadband (S if Short Period instrument, corner > 0.1 Hz)
-    (80, 250): "H",  # High Frequency (80 - 250 Hz) (E if Short Period instrument, corner > 0.1 Hz)
-    (250, 1000): "D",  # Very High Frequency (250 - 1000 Hz) (C if Short Period instrument, corner > 0.1 Hz)
-    (1000, 5000): "G",  # Extremely High Frequency (1 - 5 kHz) (F if Short period)
-}
-
-def get_band_code(sampling_rate):
-    """Determine the appropriate band code based on sampling rate."""
-    for (low, high), code in BAND_CODE_TABLE.items():
-        if low <= sampling_rate < high:
-            return code
-    return None  # Should not happen if lookup table is correct
 
 def trace2correct_sdsfullpath(base_dir, trace):
     """Determine the correct SDS path for a trace based on its metadata."""
@@ -57,40 +39,7 @@ def trace2correct_sdsfullpath(base_dir, trace):
 
     return os.path.join(base_dir, sds_subdir, filename)
 
-def adjust_band_code_for_sensor_type(current_band_code, expected_band_code):
-    """
-    Adjusts the expected band code if the current band code indicates a short-period seismometer.
 
-    Short-period seismometers use different band codes compared to broadband seismometers.
-    If the current_band_code is one of 'S', 'E', 'C', or 'F', then:
-      - 'B' (Broadband) -> 'S' (Short-period)
-      - 'H' (High-frequency broadband) -> 'E' (Short-period high-frequency)
-      - 'D' (Very long period broadband) -> 'C' (Short-period very long period)
-      - 'G' (Extremely high frequency broadband) -> 'F' (Short-period extremely high frequency)
-
-    :param current_band_code: The first letter of the current trace.stats.channel (e.g., 'S', 'E', 'C', 'F')
-    :param expected_band_code: The computed band code based on sampling rate
-    :return: Adjusted band code if necessary
-    """
-    short_period_codes = {'S', 'E', 'C', 'F'}
-    
-    if current_band_code in short_period_codes:
-        band_code_mapping = {'B': 'S', 'H': 'E', 'D': 'C', 'G': 'F'}
-        return band_code_mapping.get(expected_band_code, expected_band_code)
-    
-    return expected_band_code
-
-def check_write_read(tr):
-    mfile = '/tmp/tmpminiseedfile'
-    try:
-        tr.write(mfile, format='MSEED')
-        tr2 = read(mfile, format='MSEED')
-        #tr2.plot();
-        #plt.show()
-        return True
-    except Exception as e:
-        print(e)
-        return False
 
 def movefile(file_path, newfile_path, write=False):
     print(f'- {newfile_path} does not exist')
@@ -106,6 +55,8 @@ def movefile(file_path, newfile_path, write=False):
             print(f'- shutil failed to move {filename} to {newfilename}')
     else:
         print(f'- Would move {filename} to {newfilename}')
+    with open('movedfiles.log', "a") as f:
+        f.write(f'{file_path} to {newfile_path}' + "\n")
                                 
 
 def mergefile(root, file_path, newfile_path, write=False, backup=False):
@@ -132,16 +83,23 @@ def mergefile(root, file_path, newfile_path, write=False, backup=False):
                     os.remove(file_path)
                 else:
                     print(f'- would write merged file to {newfile_path} and remove {file_path}')
+                with open('mergedfiles.log', "a") as f:
+                    f.write(f'{file_path} to {newfile_path} SUCCESS' + "\n")
             else:
                 print('- merge/write/read failed')
                 if write:
                     shutil.move(file_path, os.path.join(NOTMERGEDDIR, os.path.basename(file_path)))
+                with open('mergedfiles.log', "a") as f:
+                    f.write(f'{file_path} to {newfile_path} FAILED' + "\n")
         else:
             print(f'- got {len(oldst)} Trace objects from merging. should be 1')
+            with open('mergedfiles.log', "a") as f:
+                f.write(f'{file_path} to {newfile_path} but got {len(oldst)} traces' + "\n")
     except Exception as e:
         print(f'- merge failed for {newfile_path} and {file_path}?')
         print(e)    
-
+        with open('mergedfiles.log', "a") as f:
+            f.write(f'{file_path} to {newfile_path} CRASHED' + "\n")
 
 def fix_sds_filenames(sds_directory, write=False, networks=None, backup=True):
     """Scan the SDS archive, rename files if necessary.
@@ -184,7 +142,7 @@ def fix_sds_filenames(sds_directory, write=False, networks=None, backup=True):
         save_processed_dir(root, LOG_FILE)
 
 
-def find_soufrierehills_lib():
+def find_soufrierehills_lib(basedir='SoufriereHillsVolcano'):
     """Find the 'lib' directory under 'SoufriereHillsVolcano' inside the 'Developer' folder in HOME."""
     
     home_dir = os.path.expanduser("~")  # Get home directory
@@ -196,8 +154,8 @@ def find_soufrierehills_lib():
     # Look for 'SoufriereHills' within 1 or 2 levels under Developer
     soufrierehills_path = None
     for root, dirs, _ in os.walk(developer_dir):
-        if "SoufriereHills" in dirs:
-            soufrierehills_path = os.path.join(root, "SoufriereHillsVolcano")
+        if basedir in dirs:
+            soufrierehills_path = os.path.join(root, basedir)
             break  # Stop searching once found
 
     if not soufrierehills_path:
@@ -211,48 +169,6 @@ def find_soufrierehills_lib():
     else:
         return "lib directory not found under SoufriereHills."
 
-
-def fix_trace_id(trace):
-    changed = False
-
-    if trace.stats.network == 'MV':
-        # we need to map MVO non-SEED compliant ids to SEED ids
-        libMVO.fix_times(trace)
-        libMVO.fix_sample_rate(trace)
-        trace.id = libMVO.correct_nslc(trace.id, trace.stats.sampling_rate)
-        changed = True
-    
-    current_id = trace.id
-    net, sta, loc, chan = current_id.split('.')
-    sampling_rate = trace.stats.sampling_rate
-    current_band_code = chan[0]
-
-    # Determine the correct band code
-    expected_band_code = get_band_code(sampling_rate) # this assumes broadband sensor
-
-    # adjust if short-period sensor
-    expected_band_code = adjust_band_code_for_sensor_type(current_band_code, expected_band_code)
-    chan = expected_band_code + chan[1:]
-
-    # make sure location is 0 or 2 characters
-    if len(loc)==1:
-        loc = loc.zfill(2)
-
-    # change CARL1 to TANK
-    if sta=='CARL1':
-        sta = 'TANK'
-    elif sta=='CARL0':
-        sta = 'BCHH'
-
-    expected_id = '.'.join([net,sta,loc,chan])
-    print(current_id, expected_id)
-
-    if (expected_id != current_id):
-        changed = True
-        print(f"Current ID: {current_id}, Expected: {expected_id}) based on fs={sampling_rate}")
-        trace.id = expected_id
-    print(trace)
-    return changed 
 
 def fix_sds_ids(sds_directory, write=False, networks=None):
     """Scan the SDS archive, correct band codes, and rename files if necessary.
@@ -468,11 +384,13 @@ def parse_sds_filename(filename):
     else:
         return None
 
-def move_files_to_sds_structure(source_dir, sds_base_dir, write=False, backup=False):
-    """ Moves MiniSEED files from a flat directory into the correct SDS archive structure. """
+def move_files_to_sds_structure(source_dir, sds_base_dir, write=False, backup=False, fix_filename_but_do_not_move=False):
+    """ Moves MiniSEED files from a flat directory into the correct SDS archive structure. 
+        if fix_filename_but_do_not_move it just corrects the filename in the current directory
+    """
     for filename in os.listdir(source_dir):
         # Parse the filename
-        if parse_sds_filename(filename):
+        if parse_sds_filename(filename) or fix_filename_but_do_not_move:
             print(f'Processing {filename}')
 
             file_path = os.path.join(source_dir, filename)
@@ -491,12 +409,17 @@ def move_files_to_sds_structure(source_dir, sds_base_dir, write=False, backup=Fa
 
             if len(this_st)==1:
                 fix_trace_id(this_st[0])
-                target_path = trace2correct_sdsfullpath(sds_base_dir, this_st[0])
-                # check if target_path exists. if so, merge (and delete). otherwise move.
-                if os.path.isfile(target_path):
-                    mergefile(sds_base_dir, file_path, target_path, write=write, backup=backup)
+                if fix_filename_but_do_not_move:
+                    target_path = trace2correct_sdsfullpath(source_dir, this_st[0])
                 else:
-                    movefile(file_path, target_path, write=write)
+                    target_path = trace2correct_sdsfullpath(sds_base_dir, this_st[0])
+                if file_path != target_path:
+                    # check if target_path exists. if so, merge (and delete). otherwise move.
+                    if os.path.isfile(target_path):
+                        mergefile(sds_base_dir, file_path, target_path, write=write, backup=backup)
+                    else:
+                        movefile(file_path, target_path, write=write)
+
             else:
                 print(f'got {len(this_st)} traces')
                 continue
@@ -505,13 +428,13 @@ def move_files_to_sds_structure(source_dir, sds_base_dir, write=False, backup=Fa
             continue           
 
 
+
 if __name__ == "__main__":
     # Example usage
     lib_dir = find_soufrierehills_lib()
+    print('lib_dir=',lib_dir)
     sys.path.append(lib_dir)
     import libMVO
-
-
     sds_directory = "/data/SDS"  # Change this to your SDS archive path
     BACKUPDIR = '/data/backups'
     NOTMERGEDDIR = '/data/notmerged'

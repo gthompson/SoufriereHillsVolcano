@@ -2,9 +2,15 @@ import os, sys
 import datetime as dt
 import pprint
 from obspy.io.nordic.core import readheader, readwavename, _is_sfile, blanksfile
-from obspy.core import read, Stream, UTCDateTime
+from obspy import read, Stream, UTCDateTime, read_inventory
 from obspy.core.event import QuantityError, Pick
-from libMVO import correct_nslc
+from libMVO import correct_nslc, read_monty_wavfile_and_correct_traceIDs, inventory_fix_ids
+from glob import glob
+import pandas as pd
+#import numpy as np
+#import obspy
+#import libSeisan2Pandas as seisan
+from libseisGT import process_trace, remove_empty_traces, remove_low_quality_traces
 
 class Sfile:
     'Base class for Sfile parameters'
@@ -861,3 +867,197 @@ class AEFfile:
                 F["energies"].append(thisval/100.0 * energy)
             startindex += 3
         return F
+
+
+############################ new stuff
+
+def set_globals(SEISAN_DATA='/data/SEISAN_DB', DB='MVOE_', xmlfile='MV.xml', station0file='STATION0_MVO.HYP'):
+    master_station_xml = os.path.join(SEISAN_DATA, 'CAL', xmlfile)
+    station0hypfile = os.path.join(SEISAN_DATA, 'DAT', station0file)
+    if os.path.exists(station0hypfile):
+        station_locationsDF = parse_STATION0HYP(station0hypfile) 
+    else:
+        station_locationsDF = None
+
+    inv = read_inventory(master_station_xml)
+    inventory_fix_ids(inv)
+
+    return SEISAN_DATA, DB, station_locationsDF, inv
+
+
+def parse_STATION0HYP(station0hypfile):
+    """ file sample
+    012345678901234567890123456 
+      MWNH1644.53N 6211.45W 407
+      MWNL1644.53N 6211.45W 407
+      MWZH1644.53N 6211.45W 407
+      MWZL1644.53N 6211.45W 407
+      0123456789012345678901234 
+    """
+    station_locations = []
+    if os.path.exists(station0hypfile):
+        fptr = open(station0hypfile,'r')
+        for line in fptr:
+            line = line.strip()
+            if len(line)==25:
+                station = line[0:4]
+                latdeg = line[4:6]
+                if latdeg != '16':
+                    print(line)
+                    continue
+                latmin = line[6:8]
+                latsec = line[9:11]
+                hemisphere = line[11]
+                if hemisphere == 'N':
+                    latsign = 1
+                elif hemisphere == 'S':
+                    latsign = -1 
+                else:
+                    #print(line)
+                    continue
+                londeg = line[13:15]
+                lonmin = line[15:17]
+                lonsec = line[18:20]
+                lonsign = 1
+                if line[20]=='W':
+                    lonsign = -1
+                elev = line[21:25].strip()
+                station_dict = {}
+                station_dict['name'] = station
+                station_dict['lat'] = (float(latdeg) + float(latmin)/60 + float(latsec)/3600) * latsign
+                station_dict['lon'] = (float(londeg) + float(lonmin)/60 + float(lonsec)/3600) * lonsign
+                station_dict['elev'] = float(elev)
+                
+                station_locations.append(station_dict)
+        fptr.close()
+        return pd.DataFrame(station_locations)
+    
+
+def add_station_locations(st, station_locationsDF):
+    for tr in st:
+        df = station_locationsDF[station_locationsDF['name'] == tr.stats.station]
+        df = df.reset_index()
+        if len(df.index)>=1:
+            row = df.iloc[0]
+            tr.stats['lat'] = row['lat']
+            tr.stats['lon'] = row['lon']
+            tr.stats['elev'] = row['elev']
+        else:
+            tr.stats['lat'] = None
+            tr.stats['lon'] = None
+            tr.stats['elev'] = None         
+
+
+def get_sfile_list(SEISAN_DATA, DB, startdate, enddate): 
+    """
+    make a list of Sfiles between 2 dates
+    """
+
+    event_list=[]
+    reapath = os.path.join(SEISAN_DATA, 'REA', DB)
+    years=list(range(startdate.year,enddate.year+1))
+    for year in years:
+        if year==enddate.year and year==startdate.year:
+            months=list(range(startdate.month,enddate.month+1))
+        elif year==startdate.year:
+            months=list(range(startdate.month,13))
+        elif year==enddate.year:
+            months=list(range(1,enddate.month+1))
+        else:
+            months=list(range(1,13))
+        for month in months:
+            #print month
+            yearmonthdir=os.path.join(reapath, "%04d" % year, "%02d" % month)
+            flist=sorted(glob(os.path.join(yearmonthdir,"*L.S*")))
+            for f in flist:
+                #fdt = sfilename2datetime(f)
+                fdt = spath2datetime(f)
+                #print(f, fdt)
+                if fdt>=startdate and fdt<enddate:
+                    event_list.append(f)
+    return event_list 
+
+def read_seisandb_apply_custom_function_to_each_event(startdate, enddate, \
+    SEISAN_DATA='/data/SEISAN_DB', DB='MVOE_', inv=None, \
+    post_process_function=None, verbose=False, bool_clean=True, \
+        plot=False, valid_subclasses='', quality_threshold=1.0, \
+            outputType='VEL', freq=[0.5, 30.0]):
+
+    nordicfilelist = get_sfile_list(SEISAN_DATA, DB, startdate, enddate) 
+
+    if verbose:
+        print(nordicfilelist) 
+    for nfile in nordicfilelist:
+        try:
+            s = Sfile(nfile, fast_mode=True)
+            d = s.to_dict()
+            #if verbose:
+            #    display(d)             
+            if valid_subclasses:
+                if not(d['mainclass']=='LV' and d['subclass'] in valid_subclasses):
+                    continue
+            #sfileindex_dict = {'sfile':os.path.basename(s.path), 'DSN_wavfile':None, 'DSN_exists':False, 'ASN_wavfile':None, 'ASN_exists':False, 'corrected_DSN_mseed':None, 'corrected_ASN_mseed':None, 'mainclass':s.mainclass, 'subclass':s.subclass}
+        except:
+            continue
+
+        for item in ['wavfile1', 'wavfile2']: # there can be up to 2 wavfiles per sfile, One from DSN and one from ASN. But here we are only interested in DSN, and these have 'MVO' in the filename
+            wavfile = d[item]
+            if wavfile and 'MVO' in os.path.basename(wavfile):               
+                st = Stream()
+                if not os.path.isfile(wavfile):
+                    altbase = os.path.basename(wavfile).split('.')[0][0:-3]
+                    pattern = os.path.join(os.path.dirname(wavfile), altbase+'*')
+                    similar_wavfiles = glob(pattern)
+                    if len(similar_wavfiles)==1:
+                        wavfile = similar_wavfiles[0]
+                    else:
+                        print(f'got {len(similar_wavfiles)} similar wavfiles matching {pattern}')                          
+                
+                try:
+                    if verbose:
+                        print(f'Trying to read {wavfile}')
+                    st = read_monty_wavfile_and_correct_traceIDs(wavfile, bool_ASN=False, verbose=verbose)
+                    #if plot:
+                    #    st.plot(equal_scale=False);
+                    st = remove_empty_traces(st)
+                    if verbose:
+                        print(st)
+                except:
+                    if verbose:
+                        print(f'could not load {wavfile}')
+                else:
+                    if len(st) > 0:
+                        for tr in st:
+                            if verbose:
+                                print('\n', f'Processing {tr}')
+                            if process_trace(tr, bool_despike=True, \
+                                    bool_clean=bool_clean, \
+                                    inv=inv, \
+                                    quality_threshold=quality_threshold, \
+                                    taperFraction=0.05, \
+                                    filterType="bandpass", \
+                                    freq=freq, \
+                                    corners=2, \
+                                    zerophase=False, \
+                                    outputType=outputType, \
+                                    miniseed_qc=True):
+                                pass
+                            else:
+                                st.remove(tr)
+                            
+                        remove_low_quality_traces(st, quality_threshold=quality_threshold)
+
+                        if len(st)>0: 
+                            if post_process_function:
+                                post_process_function(st)
+                            else:
+                                print('\nFinal Stream:')
+                                for tr in st:
+                                    print(tr.id, tr.stats.quality_factor)
+                                if plot:
+                                    st.plot(equal_scale=False);
+                        else:
+                            print('- no traces in Stream after processing')
+
+                    else:
+                        print('- no traces in Stream after loading')

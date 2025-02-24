@@ -8,7 +8,10 @@ import obspy
 from obspy.geodetics import locations2degrees, degrees2kilometers
 from SAM import DSAM
 import pickle
+from InventoryTools import inventory2traceid as inventory2seedids
+dome_location = {'lat':16.71111, 'lon':-62.17722}
 
+''' # duplicate of inventory2traceid
 def inventory2seedids(inv, chancode='', force_location_code='*'):
     seed_ids = list()
 
@@ -25,6 +28,7 @@ def inventory2seedids(inv, chancode='', force_location_code='*'):
                 seed_ids.append(this_seed_id)
     
     return seed_ids
+'''
 
 def montserrat_topo_map(show=False, zoom_level=0, inv=None, add_labels=False, centerlon=-62.177, centerlat=16.711, contour_interval=100, topo_color=True, resolution='03s', DEM_DIR=None):
 
@@ -245,6 +249,14 @@ class Grid:
         
         fig.plot(x=self.gridlon.reshape(-1), y=self.gridlat.reshape(-1), style=stylestr, pen='black')
         fig.show()
+
+def initial_source(lat=dome_location['lat'], lon=dome_location['lon']):
+    return {'lat':lat, 'lon':lon}
+
+def make_grid(center_lat=dome_location['lat'], center_lon=dome_location['lon'], node_spacing_m = 100, grid_size_lat_m = 10000, grid_size_lon_m = 8000):
+    nlat = int(grid_size_lat_m/node_spacing_m) + 1
+    nlon = int(grid_size_lon_m/node_spacing_m) + 1
+    return Grid(center_lat, center_lon, nlat, nlon, node_spacing_m)  
 
 
 def simulate_DSAM(inv, source, units='m', surfaceWaves=False, wavespeed_kms=1.5, peakf=8.0, Q=None, noise_level_percent=0.0):
@@ -486,6 +498,7 @@ class ASL:
                     symsize = scale * np.ones(len(DR))
                 else:
                     symsize = np.divide(DR, np.nanmax(DR))*scale
+                print('symbol size = ',symsize)
      
                     
                 maxi = np.argmax(DR)
@@ -501,8 +514,11 @@ class ASL:
                         symsize = symsize[ind]
                 pygmt.makecpt(cmap="viridis", series=[0, len(x)])
                 timecolor = [i for i in range(len(x))]
-
-                fig.plot(x=x, y=y, size=symsize, style="cc", pen='1p,black', color=timecolor, cmap=True)
+                try:
+                    fig.plot(x=x, y=y, size=symsize, style="cc", pen='1p,black', color=timecolor, cmap=True)
+                except Exception as e:
+                    print(e)
+                    fig.plot(x=x, y=y, size=symsize, style="cc", pen='1p,black', fill='black', cmap=True)
                 fig.colorbar(
                     frame='+l"Sequence"',
                     #     position="x11.5c/6.6c+w6c+jTC+v" #for vertical colorbar

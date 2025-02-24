@@ -5,21 +5,21 @@ import os
 import shutil
 import glob
 import pandas as pd
-import obspy
-from obspy.core import Stream, read 
+#import obspy
+from obspy.core import Stream, read, Trace
 import numpy as np
 from obspy.core.utcdatetime import UTCDateTime
 import warnings
 warnings.filterwarnings("ignore")
 import matplotlib.pyplot as plt
-import datetime
+#import datetime
 #from sys import exit
 from obspy.signal.trigger import z_detect, trigger_onset, coincidence_trigger
 from obspy.geodetics.base import gps2dist_azimuth, kilometers2degrees
 from obspy.taup import TauPyModel
-
-
+from obspy.signal.quality_control import MSEEDMetadata 
 # Glenn Thompson, Feb 2021
+from InventoryTools import has_response
 
 #######################################################################
 ##                Trace  tools                                       ##
@@ -145,21 +145,26 @@ def remove_single_sample_spikes(trace, threshold=10):
 
     # Update the trace data with the smoothed data
     trace.data = smoothed_data        
-    
-        
-def clean_trace(tr, taperFraction=0.05, filterType="bandpass", freq=[0.1, 20.0], corners=2, zerophase=True, inv=None):
+
+'''
+def clean_trace(tr, taperFraction=0.05, filterType="bandpass", freq=[0.1, 20.0], \
+                corners=2, zerophase=True, inv=None, outputType='VEL'):
     """
     Clean Trace object in place.
     clean_trace(tr, taperFraction=0.05, filterType="bandpass", freq=[0.1, 20.0], corners=2, zerophase=True, inv=None)
     """
 
+    print('clean_trace is Deprecated. using simple_clean instead')
+
     if not 'history' in tr.stats:
         tr.stats['history'] = list()    
     
     # remove absurd values
+    print('- clipping')
     clip_trace(tr) # could add function here to correct for clipping - algorithms exist
 
     # remove single sample spikes
+    print('- removing single sample spikes')
     remove_single_sample_spikes(tr)
     
     # save the start and end times for later 
@@ -176,25 +181,17 @@ def clean_trace(tr, taperFraction=0.05, filterType="bandpass", freq=[0.1, 20.0],
     npts = tr.stats.npts
     npts_pad = int(taperFraction * npts)
     npts_pad_seconds = npts_pad * tr.stats.delta
-    if npts_pad_seconds < 10.0: # impose a minimum pad length of 10-seconds
-        #npts_pad = int(10.0 / tr.stats.delta)
-        npts_pad_seconds = 10.0
-    """
-    y_prepend = np.flip(y[0:npts_pad])
-    y_postpend = np.flip(y[-npts_pad:])
-    y = np.concatenate( [y_prepend, y, y_postpend ] )
-    padStartTime = startTime - npts_pad * tr.stats.delta
-    tr.data = y
-    add_to_trace_history(tr, 'padded')
-    tr.stats.starttime = padStartTime
-    """
+    if npts_pad_seconds < 1/freq[0]: # impose a minimum pad length of 10-seconds
+        npts_pad_seconds = 1/freq[0]
     
+    print('- padding')
     pad_trace(tr, npts_pad_seconds)
     max_fraction = npts_pad / tr.stats.npts
     
     # clean
     if not 'detrended' in tr.stats.history:
         try:
+            print('- detrending')
             tr.detrend('linear')
             
         except:
@@ -209,9 +206,11 @@ def clean_trace(tr, taperFraction=0.05, filterType="bandpass", freq=[0.1, 20.0],
     
         
     if not 'tapered' in tr.stats.history:
+        print('- tapering')
         tr.taper(max_percentage=max_fraction, type="hann") 
         add_to_trace_history(tr, 'tapered')        
     
+    print('- filtering')
     if filterType == 'bandpass':
         tr.filter(filterType, freqmin=freq[0], freqmax=freq[1], corners=corners, zerophase=zerophase)
     else:    
@@ -220,7 +219,7 @@ def clean_trace(tr, taperFraction=0.05, filterType="bandpass", freq=[0.1, 20.0],
     add_to_trace_history(tr, filterType)    
         
 
-    '''
+    '
     if not 'deconvolved' in tr.stats.history:
         if not 'units' in tr.stats:
             tr.stats['units'] = 'Counts'   
@@ -234,7 +233,7 @@ def clean_trace(tr, taperFraction=0.05, filterType="bandpass", freq=[0.1, 20.0],
             tr.stats['units'] = 'm/s'
             add_to_trace_history(tr, 'calibrated')
           
-    '''
+    '
     
     if not 'units' in tr.stats:
         tr.stats['units'] = 'Counts'   
@@ -242,7 +241,9 @@ def clean_trace(tr, taperFraction=0.05, filterType="bandpass", freq=[0.1, 20.0],
     if tr.stats['units'] == 'Counts' and not 'calibrated' in tr.stats.history:
         if inv:
             try:
-                tr.remove_response(inventory=inv)
+                print('- calling removeInstrumentResponse')
+                removeInstrumentResponse(tr, None, outputType = outputType, inventory = inv, taperFraction=0)
+                #tr.remove_response(inventory=inv)
             except:
                 print('No matching response info found for %s' % tr.id)
             else:
@@ -260,10 +261,11 @@ def clean_trace(tr, taperFraction=0.05, filterType="bandpass", freq=[0.1, 20.0],
                 tr.stats['units'] = 'm/s2'                
             if tr.stats.channel[1]=='D':
                 tr.stats['units'] = 'Pa'  
-            
+              
     # remove the pad
     #tr.trim(starttime=startTime, endtime=endTime, pad=False)
     #add_to_trace_history(tr, 'unpadded')
+    print('- unpadding')
     unpad_trace(tr)
     
     #amp_after = (max(tr.data)-min(tr.data))/2
@@ -272,6 +274,106 @@ def clean_trace(tr, taperFraction=0.05, filterType="bandpass", freq=[0.1, 20.0],
     #tr.stats.calib = stdev_before / stdev_after
     #if 'calibrated' in tr.stats.history:
     #    tr.stats.calib = amp_after / amp_before
+'''
+
+def simple_clean(tr, taperFraction=0.05, filterType="bandpass", freq=[0.1, 20.0], \
+                corners=2, zerophase=True, inv=None, outputType='VEL'):
+
+
+    if not 'history' in tr.stats:
+        tr.stats['history'] = list()   
+
+    if not 'units' in tr.stats:
+        tr.stats['units'] = 'Counts'           
+    
+    # remove absurd values
+    print('- clipping')
+    clip_trace(tr) # could add function here to correct for clipping - algorithms exist
+
+    # remove single sample spikes
+    print('- removing single sample spikes')
+    remove_single_sample_spikes(tr)
+    
+    # save the start and end times for later 
+    startTime = tr.stats.starttime
+    endTime = tr.stats.endtime
+        
+    # pad the Trace
+    npts = tr.stats.npts
+    npts_pad = int(taperFraction * npts)
+    npts_pad_seconds = npts_pad * tr.stats.delta
+    if npts_pad_seconds < 1/freq[0]: # impose a minimum pad length of 10-seconds
+        npts_pad_seconds = 1/freq[0]
+    
+    print('- padding')
+    pad_trace(tr, npts_pad_seconds)
+    max_fraction = npts_pad / tr.stats.npts
+
+    # filter or fully correct
+    if inv:
+        # fully correct
+        print('- removing instrument response')
+        #removeInstrumentResponse(tr, None, outputType = outputType, inventory = inv, taperFraction=0)
+        tr.remove_response(inventory=inv, output=outputType, \
+                        pre_filt=(freq[0]/1.5, freq[0], freq[1], freq[1]*1.5), \
+                        water_level=60, zero_mean=True, \
+                        taper=False, taper_fraction=taperFraction, plot=False, fig=None)
+        add_to_trace_history(tr, 'calibrated')
+        #tr.stats.calib = _get_calib(tr, inv)        
+    else:
+        # detrend, taper, filter
+        if not 'detrended' in tr.stats.history:
+            try:
+                print('- detrending')
+                tr.detrend('linear')
+                
+            except:
+                try:
+                    tr.data = tr.data - np.nanmedian(tr.data)
+                    if np.ma.is_masked(tr.data):
+                        # Replace masked values with 0
+                        tr.data = tr.data.filled(0)   
+                except:
+                    tr.detrend('simple')
+            add_to_trace_history(tr, 'detrended')
+     
+        if not 'tapered' in tr.stats.history:
+            print('- tapering')
+            tr.taper(max_percentage=max_fraction, type="hann") 
+            add_to_trace_history(tr, 'tapered')        
+    
+        print('- filtering')
+        if filterType == 'bandpass':
+            tr.filter(filterType, freqmin=freq[0], freqmax=freq[1], corners=corners, zerophase=zerophase)
+        else:    
+            tr.filter(filterType, freq=freq, corners=corners, zerophase=zerophase)
+        update_trace_filter(tr, filterType, freq, zerophase)
+        add_to_trace_history(tr, filterType)  
+
+    # remove the pad
+    print('- unpadding')
+    unpad_trace(tr)          
+
+    '''
+    if tr.stats['units'] == 'Counts' and not 'calibrated' in tr.stats.history and tr.stats.calib!=1.0:
+        tr.data = tr.data * tr.stats.calib
+        add_to_trace_history(tr, 'calibrated') 
+    '''
+
+    if 'calibrated' in tr.stats.history:           
+        if tr.stats.channel[1]=='H':
+            if outputType=='VEL':
+                tr.stats['units'] = 'm/s'
+            elif outputType=='DISP':
+                tr.stats['units'] = 'm'
+        '''
+        if tr.stats.channel[1]=='N':
+            tr.stats['units'] = 'm/s2'                
+        if tr.stats.channel[1]=='D':
+            tr.stats['units'] = 'Pa'  
+        '''
+
+
                         
 def _get_calib(tr, this_inv):
     calib = 1.0
@@ -282,11 +384,413 @@ def _get_calib(tr, this_inv):
                     calib_freq, calib_value = channel.response._get_overall_sensitivity_and_gain()
     return calib_value
         
+  ################### New trace tools added in Feb 2025: Start ####################
+# Band code lookup table based on IRIS SEED convention
+BAND_CODE_TABLE = {
+    (0.0001, 0.001): "R",  # Extremely Long Period (0.0001 - 0.001 Hz)   
+    (0.001, 0.01): "U",  # Ultra Low Frequency (~0.01 Hz)
+    (0.01, 0.1): "V",  # Very Low Frequency (~0.1 Hz)
+    (0.1, 2): "L",   # Long Period (~1 Hz)
+    (2, 10): "M",  # Mid Period (1 - 10 Hz)
+    (10, 80): "B", # Broadband (S if Short Period instrument, corner > 0.1 Hz)
+    (80, 250): "H",  # High Frequency (80 - 250 Hz) (E if Short Period instrument, corner > 0.1 Hz)
+    (250, 1000): "D",  # Very High Frequency (250 - 1000 Hz) (C if Short Period instrument, corner > 0.1 Hz)
+    (1000, 5000): "G",  # Extremely High Frequency (1 - 5 kHz) (F if Short period)
+}
+
+def _get_band_code(sampling_rate):
+    """Determine the appropriate band code based on sampling rate."""
+    for (low, high), code in BAND_CODE_TABLE.items():
+        if low <= sampling_rate < high:
+            return code
+    return None  # Should not happen if lookup table is correct
+
+def _adjust_band_code_for_sensor_type(current_band_code, expected_band_code, short_period=False):
+    """
+    Adjusts the expected band code if the current band code indicates a short-period seismometer.
+
+    Short-period seismometers use different band codes compared to broadband seismometers.
+    If the current_band_code is one of 'S', 'E', 'C', or 'F', then:
+      - 'B' (Broadband) -> 'S' (Short-period)
+      - 'H' (High-frequency broadband) -> 'E' (Short-period high-frequency)
+      - 'D' (Very long period broadband) -> 'C' (Short-period very long period)
+      - 'G' (Extremely high frequency broadband) -> 'F' (Short-period extremely high frequency)
+
+    :param current_band_code: The first letter of the current trace.stats.channel (e.g., 'S', 'E', 'C', 'F')
+    :param expected_band_code: The computed band code based on sampling rate
+    :return: Adjusted band code if necessary
+    """
+    short_period_codes = {'S', 'E', 'C', 'F'}
+    
+    if current_band_code in short_period_codes or short_period:
+        band_code_mapping = {'B': 'S', 'H': 'E', 'D': 'C', 'G': 'F'}
+        return band_code_mapping.get(expected_band_code, expected_band_code)
+    
+    return expected_band_code
+
+def fix_trace_id(trace):
+    changed = False
+
+    if trace.stats.network == 'MV':
+        # we need to map MVO non-SEED compliant ids to SEED ids
+        libMVO.fix_times(trace)
+        libMVO.fix_sample_rate(trace)
+        trace.id = libMVO.correct_nslc(trace.id, trace.stats.sampling_rate)
+        changed = True
+    
+    current_id = trace.id
+    net, sta, loc, chan = current_id.split('.')
+    sampling_rate = trace.stats.sampling_rate
+    current_band_code = chan[0]
+
+    # Determine the correct band code
+    expected_band_code = _get_band_code(sampling_rate) # this assumes broadband sensor
+
+    # adjust if short-period sensor
+    expected_band_code = _adjust_band_code_for_sensor_type(current_band_code, expected_band_code)
+    chan = expected_band_code + chan[1:]
+
+    # make sure location is 0 or 2 characters
+    if len(loc)==1:
+        loc = loc.zfill(2)
+
+    # change CARL1 to TANK
+    if net=='FL':
+        if sta=='CARL1':
+            sta = 'TANK'
+        elif sta=='CARL0':
+            sta = 'BCHH'
+
+    expected_id = '.'.join([net,sta,loc,chan])
+    print(current_id, expected_id)
+
+    if (expected_id != current_id):
+        changed = True
+        print(f"Current ID: {current_id}, Expected: {expected_id}) based on fs={sampling_rate}")
+        trace.id = expected_id
+    print(trace)
+    return changed 
+
+def check_write_read(tr):
+    mfile = '/tmp/tmpminiseedfile'
+    try:
+        tr.write(mfile, format='MSEED')
+        tr2 = read(mfile, format='MSEED')
+        #tr2.plot();
+        #plt.show()
+        os.remove(mfile)
+        return True
+    except Exception as e:
+        print(e)
+        return False
+
+def process(st_or_tr, func):
+    """Recursively calls a given function on all traces in a Stream, or a single Trace if passed."""
+    if isinstance(st_or_tr, Stream):
+        for trace in st_or_tr:
+            process(trace, func)  # Recursive call for each Trace
+    elif isinstance(st_or_tr, Trace):
+        func(st_or_tr)  # Base case: process a single Trace
+    else:
+        raise TypeError("Input must be an ObsPy Stream or Trace object.")
+
+################### New trace tools added in Feb 2025: End ####################
+
+# QC tools moved from metrics library:
+
+
+"""
+Functions for computing data quality metrics and statistical metrics (such as amplitude, energy and frequency) 
+on Stream/Trace objects.
+
+In terms of order of application:
+
+1. Read the raw data.
+2. Fix Trace IDs.
+3. process_trace
+
+
+"""
+
+
+
+def process_trace(tr, bool_despike=True, bool_clean=True, inv=None, quality_threshold=0.0, taperFraction=0.05, filterType="bandpass", freq=[0.5, 30.0], corners=6, zerophase=False, outputType='VEL', miniseed_qc=True):
+    print(f'Processing {tr}')
+    if not 'history' in tr.stats:
+        tr.stats['history'] = list()    
         
+    """ RAW DATA QC METRICS """
+    if miniseed_qc:
+        try:
+            qcTrace(tr)
+        except:
+            print('qcTrace failed on %s for raw trace' % tr.id)
+            tr.stats['quality_factor'] = -1
+        else:        
+            tr.stats["quality_factor"] = trace_quality_factor(tr) #0 = blank trace, 1 = has some 0s and -1s, 3 = all looks good
+            tr.stats.quality_factor -= tr.stats.metrics['num_gaps']
+            tr.stats.quality_factor -= tr.stats.metrics['num_overlaps']
+            tr.stats.quality_factor *= tr.stats.metrics['percent_availability']/100.0
+            tr.stats.metrics["twin"] = tr.stats.npts /  tr.stats.sampling_rate # before or after detrending  
+    else:
+        tr.stats['quality_factor'] = 3
+    
+    if tr.stats.quality_factor > quality_threshold: # only clean traces better than the threshold
+
+        # Check for spikes - been seeing this in 1998 data
+        if bool_despike:
+            check_for_spikes(tr)
+    else:
+        print(f'- not despiking. qf={tr.stats.quality_factor}')
+
+    if tr.stats.quality_factor > quality_threshold:
+
+        """ CLEAN (DETREND, BANDPASS, CORRECT) TRACE """
+        if bool_clean:
+            try:
+                #clean_trace(tr, taperFraction=taperFraction, filterType=filterType, freq=freq, corners=corners, zerophase=zerophase, inv=inv, outputType=outputType)
+                simple_clean(tr, taperFraction=taperFraction, filterType=filterType, freq=freq, corners=corners, zerophase=zerophase, inv=inv, outputType=outputType)
+                #tr.remove_response(inventory=inv, output=outputType, pre_filt=(freq[0]/2, freq[0], freq[1], freq[1]*2), water_level=60, zero_mean=True, taper=True, taper_fraction=taperFraction, plot=False, fig=None)
+            except Exception as e:
+                print(e)
+                return False
+        ''' 
+        The logic here is probably that clean trace could change the zeros in the trace
+        But is that what we want?
+        # Update other stats
+        if miniseed_qc:
+            try:
+                qcTrace(tr) # swap this out for miniseed write/read
+                check_write_read(tr)
+            except:
+                print('qcTrace failed on %s for cleaned trace' % tr.id)
+        if not check_write_read(tr):
+            # fi cannot write to miniseed and read back again, lower the quality_factor?
+        '''
+    else:
+        print(f'- not cleaning. qf={tr.stats.quality_factor}')
+    return True
+
+def check_for_spikes(tr):
+    if not 'metrics' in tr.stats:
+        if not 'history' in tr.stats:
+            tr.stats['history'] = list()    
+        
+        """ RAW DATA QC METRICS """
+        try:
+            qcTrace(tr)
+        except:
+            print('qcTrace failed on %s for raw trace' % tr.id)
+            tr.stats['quality_factor'] = -1
+        else:        
+            tr.stats["quality_factor"] = trace_quality_factor(tr) #0 = blank trace, 1 = has some 0s and -1s, 3 = all looks good
+            tr.stats.quality_factor -= tr.stats.metrics['num_gaps']
+            tr.stats.quality_factor -= tr.stats.metrics['num_overlaps']
+            tr.stats.quality_factor *= tr.stats.metrics['percent_availability']/100.0
+            tr.stats.metrics["twin"] = tr.stats.npts /  tr.stats.sampling_rate # before or after detrending  
+    m = tr.stats.metrics
+    peak2peak = m['sample_max']-m['sample_min']
+    positive_spike_metric = (m['sample_upper_quartile']-m['sample_min'])/peak2peak
+    negative_spike_metric = (m['sample_max']-m['sample_lower_quartile'])/peak2peak
+    if positive_spike_metric < 0.01:
+        print('Positive spike(s) suspected on %s' % tr.id)
+        tr.stats['quality_factor'] = -1
+    if negative_spike_metric < 0.01:
+        print('Negative spike(s) suspected on %s' % tr.id)  
+        tr.stats['quality_factor'] = -1
+    
+def qcTrace(tr):
+    """ qcTrace(tr) DATA QUALITY CHECKS """
+    
+    """ Useful MSEED metrics
+    {'start_gap': None, 'end_gap': None, 'num_gaps': 0, 
+     'sum_gaps': 0, 'max_gap': None, 'num_overlaps': 0, 
+     'sum_overlaps': 0, 'max_overlap': None, 'quality': 'D', 
+     'sample_min': -22404, 'sample_max': 9261, 
+     'sample_mean': -3854.7406382978725, 'sample_median': -3836.0, 
+     'sample_lower_quartile': -4526.0, 'sample_upper_quartile': -3105.0, 
+     'sample_rms': 4426.1431329789848, 
+     'sample_stdev': 2175.2511682727431, 
+     'percent_availability': 100.0}           
+    """
+    if len(tr.data)>0:
+        tmpfilename = '%s%s.mseed' % (tr.id, tr.stats.starttime.isoformat())
+        tr.write(tmpfilename)
+        mseedqc = MSEEDMetadata([tmpfilename]) 
+        tr.stats['metrics'] = mseedqc.meta
+        os.remove(tmpfilename)
+        add_to_trace_history(tr, 'MSEED metrics computed (similar to ISPAQ/MUSTANG).')
+    else:
+        tr.stats['quality_factor'] = -100
+
+def _detectClipping(tr, countThresh = 10):
+    upper_clipped = False
+    lower_clipped = False
+    y = tr.data
+    mu = np.nanmax(y)
+    md = np.nanmin(y)
+    countu = (tr.data == mu).sum()
+    countd = (tr.data == md).sum()
+    if countu >= countThresh:
+        add_to_trace_history(tr, 'Trace %s appears to be clipped at upper limit %e (count=%d)' % (tr.id, mu, countu) )    
+        upper_clipped = True
+    if countd >= countThresh:
+        add_to_trace_history(tr, 'Trace %s appears to be clipped at lower limit %e (count=%d)' % (tr.id, mu, countu) )       
+        lower_clipped = True
+    return upper_clipped, lower_clipped
+
+    
+def _get_islands(arr, mask):
+    mask_ = np.concatenate(( [False], mask, [False] ))
+    idx = np.flatnonzero(mask_ [1:] != mask_ [:-1])
+    return [arr[idx[i]:idx[i+1] + 1] for i in range(0, len(idx), 2)]
+
+def _FindMaxLength(lst):
+    maxList = max(lst, key = len)
+    maxLength = max(map(len, lst))      
+    return maxList, maxLength  
+
+def trace_quality_factor(tr, min_sampling_rate=19.99):
+    # trace_quality_factor(tr)
+    # a good trace has quality factor 3, one with 0s and -1s has 1, bad trace has 0
+    quality_factor = 1.0
+    is_bad_trace = False
+    
+    # ignore traces with few samples
+    if tr.stats.npts < 100:
+        add_to_trace_history(tr, 'Not enough samples')
+        is_bad_trace = True
+    
+    # ignore traces with weirdly low sampling rates
+    if tr.stats.sampling_rate < min_sampling_rate:
+        add_to_trace_history(tr, 'Sampling rate too low')
+        is_bad_trace = True
+
+    # ignore blank trace
+    anyData = np.count_nonzero(tr.data)
+    if anyData==0:
+        add_to_trace_history(tr, 'Trace is blank')
+        is_bad_trace = True
+    
+    # check for bit level noise
+    u = np.unique(tr.data)
+    num_unique_values = u.size
+    if num_unique_values > 10:
+        quality_factor += np.log10(num_unique_values)
+    else:
+        add_to_trace_history(tr, 'bit level noise suspected')
+        is_bad_trace = True
+
+    # check for sequences of 0 or 1
+    trace_good_flag = _check0andMinus1(tr.data)
+    if not trace_good_flag:
+        add_to_trace_history(tr, 'sequences of 0 or -1 found')
+        is_bad_trace = True
+    
+    # replacement for check0andMinus1
+    seq = tr.data
+    islands = _get_islands(seq, np.r_[np.diff(seq) == 0, False]) 
+    try:
+        maxList, maxLength = _FindMaxLength(islands)
+        add_to_trace_history(tr, 'longest flat sequence found: %d samples' % maxLength)
+        if maxLength >= tr.stats.sampling_rate:
+            is_bad_trace = True
+    except:
+        is_bad_trace = True
+        
+    # time to exit?
+    if is_bad_trace:
+        return 0.0
+        
+    # check if trace clipped - but so far I don't see clipped trace as terminal
+    upperClipped, lowerClipped = _detectClipping(tr) # can add another function to interpolate clipped values
+    if upperClipped:
+        quality_factor /= 2.0
+    if lowerClipped:
+        quality_factor /= 2.0
+         
+    # check for outliers - but I haven't tuned this yet, so not making it a decision between quality 0.0 and continue
+    outlier_count, outlier_indices = _mad_based_outlier(tr, thresh=50.0)
+    #print('Outliers: %d' % outlier_count)
+    if outlier_count == 0:
+        quality_factor += 1.0
+    else:
+        add_to_trace_history(tr, '%d outliers found' % outlier_count)
+        tr.stats['outlier_indices'] = outlier_indices    
+       
+    return quality_factor    
+
+def _mad_based_outlier(tr, thresh=3.5):
+    tr2 = tr.copy()
+    tr2.detrend()
+    points = tr2.data
+    if len(points.shape) == 1:
+        points = points[:,None]
+    #points = np.absolute(points)
+    median = np.median(points, axis=0)
+    diff = np.sum((points - median)**2, axis=-1)
+    diff = np.sqrt(diff)
+    med_abs_deviation = np.median(diff)
+
+    modified_z_score = 0.6745 * diff / med_abs_deviation
+    
+    outlier_indices = np.array(np.where(modified_z_score > thresh))
+    outlier_count = outlier_indices.size
+    '''
+    if outlier_count > 0:
+        print('size diff = %d, median = %e, med_abs_deviation = %e ' % (diff.size, median, med_abs_deviation))
+        mzs = sorted(modified_z_score)
+        print(mzs[-10:])
+    '''
+    
+    return outlier_count, outlier_indices
+
+
+def _check0andMinus1(liste):
+# function bool_good_trace = check0andMinus1(tr.data)
+    liste=list(liste)
+    listStr=''.join(str(i) for i in liste)
+    if  "000000000000" in listStr or "-1-1-1-1-1-1-1-1" in listStr :
+        return False
+    else:
+        return True  
+
+
+
+      
     
 #######################################################################
 ##                Stream tools                                       ##
 #######################################################################
+
+
+def remove_empty_traces(stream):
+    """Removes empty traces, traces full of zeros, and traces full of NaNs from an ObsPy Stream."""
+    cleaned_stream = Stream()  # Create a new empty Stream
+
+    for trace in stream:
+        # Check if trace is empty (npts == 0)
+        if trace.stats.npts == 0:
+            continue
+        
+        # Check for flat trace (e.g. all zero, or all -1)
+        if np.all(trace.data == np.nanmean(trace.data)):
+            continue
+
+        # Check if all values are NaN
+        if np.all(np.isnan(trace.data)):
+            continue
+
+        # If trace passes all checks, add it to the cleaned stream
+        cleaned_stream += trace
+
+    return cleaned_stream    
+
+def remove_low_quality_traces(st, quality_threshold=1.0):
+    for tr in st:
+        if tr.stats.quality_factor < quality_threshold: 
+            st.remove(tr)
+
 def piecewise_detrend(st, null_value=0, fill_value=np.nan, detrend='linear', verbose=False): 
     # takes a Stream object nominally from an SDSclient that has gaps marked by zeros, and applies
 
@@ -323,9 +827,15 @@ def piecewise_detrend(st, null_value=0, fill_value=np.nan, detrend='linear', ver
     #        print('merged again. stream now contains {len(st)} traces')
 
 
-
-
 def get_seed_band_code(sr, shortperiod = False):
+    # adjusted Feb 2025 to exploit new code above
+    
+    # Determine the correct band code
+    bc = _get_band_code(sr) # this assumes broadband sensor
+
+    # adjust if short-period sensor
+    bc = _adjust_band_code_for_sensor_type(None, bc, shortperiod)  
+    '''
     bc = '_'
     if sr >= 1 and sr < 10:
         bc = 'M'
@@ -339,19 +849,21 @@ def get_seed_band_code(sr, shortperiod = False):
             bc = 'E'
         else:
             bc = 'H'
+    '''
     return bc
         
-def fix_seed_band_code(st, shortperiod = False):
+def fix_seed_band_code(st, shortperiod = False):  
+    print('libseisGT.fix_seed_band_code is deprecated. please use libseisGT.fix_trace_id')
     for tr in st:
         sr = tr.stats.sampling_rate
-        bc = libseisGT.get_seed_band_code(sr, shortperiod=shortperiod)
+        bc = get_seed_band_code(sr, shortperiod=shortperiod)
         if not bc == tr.stats.channel[0]:
             tr.stats.channel = bc + tr.stats.channel[1:]
             add_to_trace_history(tr, 'bandcode_fixed') 
 
-
                   
-def smart_merge(st):
+def smart_merge(st, verbose=False, interactive=False):
+    print('also see smart_merge_traces(trace_pair)')
     # need to loop over st and find traces with same ids
     ##### GOT HERE
     newst = Stream()
@@ -370,9 +882,9 @@ def smart_merge(st):
             s1 = these_traces[c].stats
             if s0.starttime == s1.starttime and s0.endtime == s1.endtime and s0.sampling_rate == s1.sampling_rate:
                 traces_to_remove.append(c)
-                
-        print(these_traces)
-        print(traces_to_remove)
+        if verbose:
+            print(these_traces)
+            print(traces_to_remove)
         if traces_to_remove:
             for c in traces_to_remove:
                 these_traces.remove(these_traces[c])
@@ -384,9 +896,11 @@ def smart_merge(st):
         # must have more than 1 trace
         try: # try regular merge now duplicates removed
             merged_trace = these_traces.copy().merge()
-            print('- regular merge of these traces success')
+            if verbose:
+                print('- regular merge of these traces success')
         except:
-            print('- regular merge of these traces failed')   
+            if verbose:
+                print('- regular merge of these traces failed')   
             # need to try merging traces in pairs instead
             N = len(these_traces)
             these_traces.sort() # sort the traces
@@ -402,9 +916,11 @@ def smart_merge(st):
                 # merge these two traces together    
                 try: # standard merge
                     merged_trace = trace_pair.copy().merge()
-                    print('- regular merge of trace pair success')
+                    if verbose:
+                        print('- regular merge of trace pair success')
                 except: # smart merge
-                    print('- regular merge of trace pair failed')
+                    if verbose:
+                        print('- regular merge of trace pair failed')
                     try:
                         min_stime, max_stime, min_etime, max_etime = ls.Stream_min_starttime(trace_pair)
                         trace_pair.trim(starttime=min_stime, endtime=max_etime, pad=True, fill_value=0)
@@ -414,7 +930,8 @@ def smart_merge(st):
                         
             # we have looped over all pairs and merged_trace should now contain everything
             # we should only have 1 trace in merged_trace
-            print(merged_trace)
+            if verbose:
+                print(merged_trace)
             if len(merged_trace)==1:
                 try:
                     newst.append(merged_trace[0])
@@ -423,13 +940,17 @@ def smart_merge(st):
                     pass
                 
             if not appended:
-                print('\n\nTrace conflict\n')
-                trace_pair.plot()
-                for c in range(len(trace_pair)):
-                    print(c, trace_pair[c])
-                choice = int(input('Keep which trace ? '))
-                newst.append(trace_pair[choice])  
-                appended = True                
+                if interactive:
+                    print('\n\nTrace conflict\n')
+                    trace_pair.plot()
+                    for c in range(len(trace_pair)):
+                        print(c, trace_pair[c])
+                    choice = int(input('Keep which trace ? '))
+                    newst.append(trace_pair[choice])  
+                    appended = True 
+                else:
+                    raise('not able to merge')
+
                              
     return newst 
         
@@ -456,8 +977,8 @@ def Stream_min_starttime(all_traces):
             max_etime = this_tr.stats.endtime              
     return min_stime, max_stime, min_etime, max_etime
 
-
-def removeInstrumentResponse(st, preFilter = (1, 1.5, 30.0, 45.0), outputType = "VEL", inventory = None):  
+'''
+def removeInstrumentResponse(st_or_tr, preFilter = (1, 1.5, 30.0, 45.0), outputType = "VEL", inventory = None, taperFraction=0.05):  
     """
     Remove instrument response - note inventories may have been added to Stream object
     Written for Miami Lakes
@@ -466,8 +987,28 @@ def removeInstrumentResponse(st, preFilter = (1, 1.5, 30.0, 45.0), outputType = 
 
     Note that taper_fraction=0.05, water_level=60 are other default parameters
     """
+    print('removeInstrumentResponse is Deprecated. For some reason this does not seem to work well. Use process_trace instead')
+    if isinstance(st_or_tr, Stream):
+        for trace in st_or_tr:
+            try:
+                removeInstrumentResponse(trace, preFilter = preFilter, outputType = outputType, inventory = inventory, taperFraction=taperFraction)
+            except:
+                st_or_tr.remove(trace)
+            
+    elif isinstance(st_or_tr, Trace):  
+        tr = st_or_tr 
+        bool_taper = False
+        if taperFraction:
+            bool_taper = True
+        if has_response(inventory, tr):
+            #print(f"Response exists for {tr.id}")
+            print(f'Correcting {tr.id}')        
+            tr.remove_response(output=outputType, pre_filt=preFilter, inventory = None, water_level=60, zero_mean=True, taper=bool_taper, taper_fraction=taperFraction, plot=False, fig=None)
+        else:
+            print(f"No response found for {tr.id}")         
+    #OLDER STUFF
     try:
-        st.remove_response(output=outputType, pre_filt=preFilter, inventory = None)
+        st.remove_response(output=outputType, pre_filt=preFilter, inventory = None, water_level=60, zero_mean=True, taper=bool_taper, taper_fraction=taperFraction, plot=False, fig=None)
     except:
         for tr in st:
             try:
@@ -476,6 +1017,7 @@ def removeInstrumentResponse(st, preFilter = (1, 1.5, 30.0, 45.0), outputType = 
                 print("- Not able to correct data for %s " %  tr.id)
                 st.remove(tr)
     return
+    '''
 
 def detect_network_event(st_in, minchans=None, threshon=3.5, threshoff=1.0, sta=0.5, lta=5.0, pad=0.0, best_only=False):
     """
@@ -543,8 +1085,6 @@ def detect_network_event(st_in, minchans=None, threshon=3.5, threshoff=1.0, sta=
             unpad_trace(tr)  
     """      
     
-    
-
 def add_channel_detections(st, lta=5.0, threshon=0.5, threshoff=0.0, max_duration=120):
     """ 
     Runs a single channel detection on each Trace. No coincidence trigger/association into event.
@@ -563,7 +1103,6 @@ def add_channel_detections(st, lta=5.0, threshon=0.5, threshoff=0.0, max_duratio
         for trigpair in triggerlist:
             trigpairUTC = [tr.stats.starttime + samplenum/Fs for samplenum in trigpair]
             tr.stats.triggers.append(trigpairUTC)
-
 
 def get_event_window(st, pretrig=30, posttrig=30):
     """ 
@@ -589,195 +1128,10 @@ def get_event_window(st, pretrig=30, posttrig=30):
         return sorted(mintime)[N], sorted(maxtime)[N]
     else:
         return None, None
-    
 
 def trim_to_event(st, mintime, maxtime, pretrig=10, posttrig=10):
     """ Trims a Stream based on mintime and maxtime which could come from detect_network_event or get_event_window """
     st.trim(starttime=mintime-pretrig, endtime=maxtime+posttrig)
-    
-def plot_seismograms(st, outfile=None, bottomlabel=None, ylabels=None):
-    """ Create a plot of a Stream object similar to Seisan's mulplt """
-    fh = plt.figure(figsize=(8,12))
-    
-    # get number of stations
-    stations = []
-    for tr in st:
-        stations.append(tr.stats.station)
-    stations = list(set(stations))
-    n = len(stations)
-    
-    # start time as a Unix epoch
-    startepoch = st[0].stats.starttime.timestamp
-    
-    # create empty set of subplot handles - without this any change to one affects all
-    axh = []
-    
-    # loop over all stream objects
-    colors = 'kgrb'
-    channels = 'ZNEF'
-    linewidths = [0.25, 0.1, 0.1, 0.25]
-    for i in range(n):
-        # add new axes handle for new subplot
-        #axh.append(plt.subplot(n, 1, i+1, sharex=ax))
-        if i>0:
-            #axh.append(plt.subplot(n, 1, i+1, sharex=axh[0]))
-            axh.append(fh.add_subplot(n, 1, i+1, sharex=axh[0]))
-        else:
-            axh.append(fh.add_subplot(n, 1, i+1))
-        
-        # find all the traces for this station
-        this_station = stations[i]
-        these_traces = st.copy().select(station=this_station)
-        for this_trace in these_traces:
-            this_component = this_trace.stats.channel[2]
-            line_index = channels.find(this_component)
-            #print(this_trace.id, line_index, colors[line_index], linewidths[line_index])
-        
-            # time vector, t, in seconds since start of record section
-            t = np.linspace(this_trace.stats.starttime.timestamp - startepoch,
-                this_trace.stats.endtime.timestamp - startepoch,
-                this_trace.stats.npts)
-            #y = this_trace.data - offset
-            y = this_trace.data
-            
-            # PLOT THE DATA
-            print(i, line_index)
-            axh[i].plot(t, y, linewidth=linewidths[line_index], color=colors[line_index])
-            axh[i].autoscale(enable=True, axis='x', tight=True)
-   
-        # remove yticks because we will add text showing max and offset values
-        #axh[i].yaxis.set_ticks([])
-
-        # remove xticklabels for all but the bottom subplot
-        if i < n-1:
-            axh[i].xaxis.set_ticklabels([])
-        else:
-            # for the bottom subplot, also add an xlabel with start time
-            if bottomlabel:
-                plt.xlabel(bottomlabel)
-            else:
-                plt.xlabel("Starting at %s" % (st[0].stats.starttime) )
-
-        # default ylabel is station.channel
-        if ylabels:
-            plt.ylabel(ylabels[i])
-        else:
-            plt.ylabel(this_station, rotation=90)
-            
-    # change all font sizes
-    plt.rcParams.update({'font.size': 8})
-    
-    plt.subplots_adjust(wspace=0.1)
-    
-    # show the figure
-    if outfile:
-        plt.savefig(outfile, bbox_inches='tight')    
-    else:
-        plt.show()
-    
-    
-def mulplt(st, bottomlabel='', ylabels=[], MAXPANELS=6):
-    """ Create a plot of a Stream object similar to Seisan's mulplt """
-    fh = plt.figure()
-    n = np.min([MAXPANELS, len(st)])
-    
-    # start time as a Unix epoch
-    startepoch = st[0].stats.starttime.timestamp
-    
-    # create empty set of subplot handles - without this any change to one affects all
-    axh = []
-    
-    # loop over all stream objects
-    for i in range(n):
-        # add new axes handle for new subplot
-        #axh.append(plt.subplot(n, 1, i+1, sharex=ax))
-        axh.append(plt.subplot(n, 1, i+1))
-        
-        # time vector, t, in seconds since start of record section
-        t = np.linspace(st[i].stats.starttime.timestamp - startepoch,
-            st[i].stats.endtime.timestamp - startepoch,
-            st[i].stats.npts)
-            
-        # We could detrend, but in case of spikes, subtracting the median may be better
-        #st[i].detrend()
-        offset = np.median(st[i].data)
-        y = st[i].data - offset
-        
-        # PLOT THE DATA
-        axh[i].plot(t, y)
-   
-        # remove yticks because we will add text showing max and offset values
-        axh[i].yaxis.set_ticks([])
-
-        # remove xticklabels for all but the bottom subplot
-        if i < n-1:
-            axh[i].xaxis.set_ticklabels([])
-        else:
-            # for the bottom subplot, also add an xlabel with start time
-            if bottomlabel=='':
-                plt.xlabel("Starting at %s" % (st[0].stats.starttime) )
-            else:
-                plt.xlabel(bottomlabel)
-
-        # default ylabel is station.channel
-        if ylabels==[]:
-            plt.ylabel(st[i].stats.station + "." + st[i].stats.channel, rotation=0)
-        else:
-            plt.ylabel(ylabels[i])
-
-        # explicitly give the maximum amplitude and offset(median)
-        plt.text(0, 1, "max=%.1e offset=%.1e" % (np.max(np.abs(y)), offset),
-            horizontalalignment='left',
-            verticalalignment='top',transform=axh[i].transAxes)
-            
-    # change all font sizes
-    plt.rcParams.update({'font.size': 8})
-    
-    # show the figure
-    plt.show()
-    #st.mulplt = types.MethodType(mulplt,st)    
-    
-    return fh, axh
-   
-   
-    
-def plot_stream_types(st, eventdir, maxchannels=10): 
-    # assumes input traces are in velocity or pressure units and cleaned
-      
-    # velocity, displacement, acceleration seismograms
-    stV = st.copy().select(channel='[ESBH]H?') 
-    if len(stV)>maxchannels:
-        stV = stV.select(channel="[ESBH]HZ") # just use vertical components then
-        if len(stV)>maxchannels:
-            stV=stV[0:maxchannels]
-    stD = stV.copy().integrate()   
-    stA = stV.copy().differentiate()
-
-    # Infrasound data
-    stP = st.copy().select(channel="[ESBH]D?")
-    if len(stP)>maxchannels:
-        stP=stP[0:maxchannels]
-        
-    # Plot displacement seismogram
-    if stD:
-        dpngfile = os.path.join(eventdir, 'seismogram_D.png')
-        stD.plot(equal_scale=False, outfile=dpngfile)    
-    
-    # Plot velocity seismogram
-    if stV:
-        vpngfile = os.path.join(eventdir, 'seismogram_V.png')
-        stV.plot(equal_scale=False, outfile=vpngfile)
-         
-    # Plot acceleration seismogram
-    if stA:
-        apngfile = os.path.join(eventdir, 'seismogram_A.png')
-        stA.plot(equal_scale=False, outfile=apngfile)
-        
-    # Plot pressure acoustograms
-    if stP:
-        ppngfile = os.path.join(eventdir, 'seismogram_P.png')
-        stP.plot(equal_scale=False, outfile=ppngfile)     
-    
     
 #######################################################################    
 ########################         WFDISC tools                        ##

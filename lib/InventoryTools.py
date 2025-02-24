@@ -206,7 +206,59 @@ def modify_inventory(inv, thisid, lat=None, lon=None, elev=None):
                                     code0 = 'E'
                             chan.code = code0 + chan.code[1:]
                                 
-                                
+
+def show_response(inv):
+    # Loop over the stations and channels to access the sensitivity
+    for network in inv:
+        print(f'Network: {network}')
+        for station in network:
+            print(f'Station: {station}')
+            for channel in station:
+                print(f'Channel: {channel}')
+                if channel.response is not None:
+                    # The response object holds the overall sensitivity
+                    #sensitivity = channel.response.sensitivity
+                    print(f'Response: {channel.response}')
+    print('*****************************\n\n\n')
+
+
+
+def has_response(inventory, trace):
+    """
+    Check if a response exists for a given Trace in an ObsPy Inventory.
+
+    :param inventory: ObsPy Inventory object
+    :param trace: ObsPy Trace object (from a Stream)
+    :return: True if response exists, False otherwise
+    """
+    try:
+        # Get response for the trace's network, station, location, channel, and start time
+        resp = inventory.get_response(trace.id, trace.stats.starttime)
+        return resp is not None  # Response exists
+    except Exception:
+        return False  # No response found
+
+
+
+def calculate_sensitivity_all(inventory):
+    # Iterate through all networks and stations in the inventory
+    for network in inventory:
+        for station in network:
+            for channel in station:
+                if channel.response:  # Check if the station has a response
+                    # Recalculate the sensitivity for the station's response
+                    #sensitivity = calculate_sensitivity(channel.response)
+                    channel.response.recalculate_overall_sensitivity()
+                    
+                    # Now you can do something with the recalculated sensitivity, such as:
+                    # - Print it
+                    #print(f"{network.code}.{station.code}{channel.code} has recalculated sensitivity: {sensitivity}")
+                    
+                    # - Store it in the station's metadata (if needed)
+                    # station.sensitivity = sensitivity  # You can add an attribute for sensitivity if required
+
+    # Optionally, save the modified inventory if you want to store the changes
+    # inventory.write("modified_inventory.xml", format="STATIONXML")                                
                                 
                              
            

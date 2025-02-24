@@ -371,19 +371,6 @@ def change_stage_gain(thisresponse, stagenum, newgain):
         stage.gain *= newgain  # Set the new gain value
 
 
-def show_response(inv):
-    # Loop over the stations and channels to access the sensitivity
-    for network in inv:
-        for station in network:
-            for channel in station:
-                print(network, station, channel)
-                if channel.response is not None:
-                    # The response object holds the overall sensitivity
-                    #sensitivity = channel.response.sensitivity
-                    print(channel.response)
-    print('*****************************\n\n\n')
-
-
 # Function to calculate the overall sensitivity for a station's response
 def calculate_sensitivity(response):
     sensitivity = 1.0  # Default sensitivity (neutral multiplier)
@@ -398,26 +385,6 @@ def calculate_sensitivity(response):
             sensitivity *= stage.coefficients[0]  # If this applies to the specific polynomial stage.
 
     return sensitivity
-
-def calculate_sensitivity_all(inventory):
-    # Iterate through all networks and stations in the inventory
-    for network in inventory:
-        for station in network:
-            for channel in station:
-                if channel.response:  # Check if the station has a response
-                    # Recalculate the sensitivity for the station's response
-                    #sensitivity = calculate_sensitivity(channel.response)
-                    channel.response.recalculate_overall_sensitivity()
-                    
-                    # Now you can do something with the recalculated sensitivity, such as:
-                    # - Print it
-                    #print(f"{network.code}.{station.code}{channel.code} has recalculated sensitivity: {sensitivity}")
-                    
-                    # - Store it in the station's metadata (if needed)
-                    # station.sensitivity = sensitivity  # You can add an attribute for sensitivity if required
-
-    # Optionally, save the modified inventory if you want to store the changes
-    # inventory.write("modified_inventory.xml", format="STATIONXML")
 
 
 if __name__ == '__main__':

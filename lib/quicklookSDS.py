@@ -3,8 +3,9 @@ import json
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from obspy.clients.filesystem.sds import Client as SDSClient
-from obspy import UTCDateTime, Stream
+from obspy import UTCDateTime #, Stream
 import numpy as np
+from libPlot import downsample_and_plot_1_trace_per_location
 
 CONFIG_FILE = "sds_config.json"
 
@@ -47,11 +48,6 @@ def toggle_date_input():
         day_entry.config(state="disabled")
         julian_entry.config(state="normal")
 
-
-
-def count_nonzero_samples(trace):
-    """Returns the count of non-zero samples in a trace."""
-    return np.count_nonzero(trace.data)
 
 def plot_seismic_data():
     """Loads, downsamples, and plots the seismic and infrasound channels with the highest number of non-zero samples."""
@@ -96,57 +92,9 @@ def plot_seismic_data():
        
         print(stream.__str__(extended=True))
 
-        # Downsample to 1 Hz if necessary
-        target_sampling_rate = 1.0
-        print(f'Downsampling traces', end=' ')
-        for trace in stream:
-            print(trace.id, end=' ')
-            if trace.stats.sampling_rate > target_sampling_rate:
-                decimation_factor = int(trace.stats.sampling_rate / target_sampling_rate)
-                if decimation_factor > 1:
-                    trace.decimate(decimation_factor, no_filter=True)
-        print('\n')
+        downsample_and_plot_1_trace_per_location(stream, target_sampling_rate=1.0)
+        
 
-        # Group traces by station-location and select the ones with the most non-zero samples
-        station_location_data = {}
-        print('Subsetting channels to plot')
-        for trace in stream:
-            key = (trace.stats.station, trace.stats.location)
-            channel = trace.stats.channel
-            nonzero_count = count_nonzero_samples(trace)
-
-            if key not in station_location_data:
-                station_location_data[key] = {"seismic": None, "infrasound": None}
-
-            # Seismic selection: Highest non-zero sample count among ?HZ, ?HN, ?HE
-            if channel[1]=='H':
-                if (
-                    station_location_data[key]["seismic"] is None or
-                    nonzero_count > count_nonzero_samples(station_location_data[key]["seismic"])
-                ):
-                    station_location_data[key]["seismic"] = trace  # Pick the trace with the most non-zero samples
-
-            # Infrasound selection: Highest non-zero sample count among ?DF, ?DG, ?D
-            if channel[1]=='D':
-                if (
-                    station_location_data[key]["infrasound"] is None or
-                    nonzero_count > count_nonzero_samples(station_location_data[key]["infrasound"])
-                ):
-                    station_location_data[key]["infrasound"] = trace  # Pick the trace with the most non-zero samples
-
-        # Create a single stream for all selected traces
-        selected_stream = Stream()
-        for channels in station_location_data.values():
-            if channels["seismic"]:
-                selected_stream += channels["seismic"]
-            if channels["infrasound"]:
-                selected_stream += channels["infrasound"]
-
-        # Plot all selected traces in one figure
-        print('Plotting')
-        if len(selected_stream) > 0:
-            print(f"Plotting {len(selected_stream)} traces in one figure.")
-            selected_stream.plot(equal_scale=False)
 
     except Exception as e:
         messagebox.showerror("Error", f"An error occurred: {e}")
