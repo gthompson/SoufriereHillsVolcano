@@ -8,7 +8,7 @@ from obspy import read_inventory, read, Stream, Trace
 
 LIBpath = os.path.join( os.getenv('HOME'),'src','kitchensinkGT', 'LIB')
 sys.path.append(LIBpath)
-from libseisGT import get_seed_band_code
+from libseisGT import get_seed_band_code, fix_trace_id
 from metrics import process_trace, ampengfft
 sys.path.append(os.path.join( os.getenv('HOME'),'src', 'icewebPy') )
 import IceWeb
@@ -24,6 +24,7 @@ def swap32(i):
     # Change the endianess
     return struct.unpack("<i", struct.pack(">i", i))[0]
 
+'''
 def fix_trace_id(st, shortperiod=False):
     # convenience method to wrap correct_nslc
 
@@ -39,36 +40,84 @@ def fix_trace_id(st, shortperiod=False):
                 tr.stats['units'] = 'm/s'    
         else:
             tr.stats['units'] = 'Counts'
+'''
+
+def fix_trace_id_mvo(trace, legacy=False, netcode='MV'):
+    fix_times(trace)
+    fix_sample_rate(trace)
+    trace.id = correct_nslc(trace.id, trace.stats.sampling_rate)
+    fix_trace_id(trace, legacy=legacy, netcode=netcode)
 
 def correct_nslc(traceID, Fs, shortperiod=None):
     # Montserrat trace IDs are often bad. return correct trace ID
-    
+    # also see fix_nslc_montserrat in /home/thompsong/Developer/SoufriereHillsVolcano/AnalogSeismicNetworkPaper/LIB/fix_mvoe_traceid.ipynb
     # special case - based on waveform analysis, this trace is either noise or a copy of MV.MBLG..SHZ
     if traceID == '.MBLG.M.DUM':
-        newID = 'MV.MBLG.1.SHZ'
-        return newID
-    
-    
+        traceID= 'MV.MBLG.10.SHZ'
+    traceID = traceID.replace("?", "x")
+
     oldnet, oldsta, oldloc, oldcha = traceID.split('.')
 
     net = 'MV'    
-    sta = oldsta
-    loc = oldloc
-    chan = oldcha
+    sta = oldsta.strip()
+    loc = oldloc.strip()
+    chan = oldcha.strip()
+
+    if loc == '--' or loc == 'J' or loc=='I':
+        loc = ''    
+
+    if not shortperiod:
+        if 'SB' in chan or chan[0] in 'BH':
+            shortperiod=False
+        else:
+            shortperiod = True
+        bandcode = get_seed_band_code(Fs, shortperiod=shortperiod)
+
+    bandcode = get_seed_band_code(Fs, shortperiod=shortperiod) # not sure here if BB or SP sensor
+    instrumentcode = 'H'
+    orientationcode = 'x'
+    if 'Z' in loc or 'Z' in chan:
+        orientationcode = 'Z'
+    elif 'N' in loc or 'N' in chan:
+        orientationcode = 'N'
+    elif 'E' in loc or 'E' in chan:
+        orientationcode = 'E'    
+
+
+    if (sta=='MBLY' and chan[0]=='P') or 'AP' in chan or 'PR' in chan or 'PH' in chan or chan=='S A':
+        instrumentcode = 'D'
+        orientationcode = 'F'
+        if chan[-1].isnumeric():
+            loc = chan[-1].zfill(2)
+        elif loc.isnumeric():
+            loc = loc.zfill(2)
+        else:
+            loc = ''
+
+
+    elif len(chan)>1:
+        if chan[1].strip():
+            instrumentcode = chan[1] 
+        if len(chan)>2:
+            orientationcode = chan[2]
+            if orientationcode=='H':
+                orientationcode='x'
+        
+    #print(f'chan here {chan}: {bandcode},{instrumentcode},{orientationcode}')  
     
     # channel code is bandcode + instrumentcode + orientationcode
+    '''
     if len(chan)>0:
         if chan[0]=='E' or chan[0]=='S':
             shortperiod=True
         if chan[0]=='B' or chan[0]=='H':  
             shortperiod=False    
-    bandcode = get_seed_band_code(Fs, shortperiod=shortperiod) # not sure here if BB or SP sensor
-    instrumentcode = 'H' # 'H' seismic velocity sensor is default
-    orientationcode = 'Z'
-    if len(chan)>1:
-        instrumentcode = chan[1] 
-    if len(chan)>2:
-        orientationcode = chan[2]    
+    
+
+ 
+    if not instrumentcode  in 'HLD':
+        instrumentcode = 'H' # 'H' seismic velocity sensor is default
+    '''
     
     # Montserrat BB network 1996-2004 had weirdness like
     # BB stations having channels 'SB[Z,N,E]' and
@@ -79,62 +128,77 @@ def correct_nslc(traceID, Fs, shortperiod=None):
     # type of seismometer, oriented North?
     # let's handle these directly here
     if len(chan)==2:
-        # could be a 2006 era waveform trace ID where given as .STAT.C.[BS]H
+
+        # could be a 2006 era waveform trace ID where given as .STAT.[ZNE].[BS]H
         if len(loc)==1:
-            chan=chan+loc # now length 3
-            orientationcode = loc
-            if not loc.isnumeric():
-                loc='' 
+            #chan=chan+loc # now length 3
+            if loc in 'ZNE':
+                orientationcode = loc
+                loc = ''
+            #if not loc.isnumeric():
+            #    loc='' 
         elif len(loc)==0:
             # could be arrival row from an Sfile, where the "H" is omitted
             # or an AEF line where trace dead and orientation missing
-            instrumentcode = 'H'
+            #instrumentcode = 'H'
             if chan[1] in 'ZNE':
                 orientationcode = chan[1]
-            else:
-                orientationcode = '' # sometimes get two-character chans from AEF lines which omit component when trace is dead, e.g. 01-0954-24L.S200601, 
-    if len(chan)==3:
+            #else:
+            #    orientationcode = '' # sometimes get two-character chans from AEF lines which omit component when trace is dead, e.g. 01-0954-24L.S200601, 
+
+
+    
+    elif len(chan)==3:
+        
         if chan[0:2]=='SB':
-            bandcode = get_seed_band_code(Fs, shortperiod=False) # just because we know it is BB sensor
+             # just because we know it is BB sensor
             instrumentcode = 'H'
+        """    
         elif chan[0:2]=='S ':
             bandcode = get_seed_band_code(Fs, shortperiod=True) # just because we know it is SP sensor
             instrumentcode = 'H'
-        elif chan[0:3]=='PRS':
-            bandcode = get_seed_band_code(Fs, shortperiod=True) # just because we know it is SP sensor
+        
+        if chan[0:3]=='PRS':
             instrumentcode = 'D'
             orientationcode = 'F'
         elif chan[0:3]=='A N':
-            bandcode = get_seed_band_code(Fs, shortperiod=True) # just because we know it is SP sensor
             instrumentcode = 'N'
             orientationcode = 'Z'
             #loc = '10'
         elif chan[0]=='P' or chan[0:2]=='AP' or chan=='PRS': # just because we know it is SP sensor
-            bandcode = get_seed_band_code(Fs, shortperiod=True)
             instrumentcode ='D' # infrasound/acoustic
             orientationcode = 'F'
             if chan[1].isnumeric(): # e.g. channel like P5
-                loc = chan[1]      
+                loc = chan[1].zfill(2)
+            if chan[2].isnumeric(): # e.g. channel like P5
+                loc = chan[2].zfill(2)                   
+        
         elif chan[1] in 'ZNE': # seismic component in wrong position
             bandcode = get_seed_band_code(Fs, shortperiod=shortperiod)
             instrumentcode = 'H'  
             orientationcode = chan[1]
+        
         elif len(chan)==2 and instrumentcode == 'H': # e.g. .MBLY.5.SH
             orientationcode = loc
             loc = ''  
+        """
+
+
+    '''
     if len(loc)>0:
         if loc[0]=='J' or loc[0]=='E' or loc == "--":
             if len(loc)>1:
                 loc=loc[1:]
             else:
                 loc=''   
+    '''
 
     chan = bandcode + instrumentcode + orientationcode
 
     newID = net + "." + sta + "." + loc + "." + chan
     #print(traceID,'->',newID)
     return newID
-
+'''
 def inventory_fix_id_mvo(inv):
     inv[0].code='MV'
     net = inv[0].code
@@ -154,6 +218,7 @@ def inventory_fix_id_mvo(inv):
         station.code = sta
     inv[0].code = net
     return inv
+'''
 
 def inventory_fix_ids(inv, netcode='MV'):
     for network in inv.networks:
@@ -253,7 +318,7 @@ def metrics2df(st):
 def fix_sample_rate(st, Fs=75.0):
     if isinstance(st, Stream):
         for tr in st:
-            fix_sample_rate(tr, Fs=75.0)  # Recursive call for each Trace
+            fix_sample_rate(tr, Fs=Fs)  # Recursive call for each Trace
     elif isinstance(st, Trace):
         tr = st
         if tr.stats.sampling_rate > Fs * 0.99 and tr.stats.sampling_rate < Fs * 1.01:

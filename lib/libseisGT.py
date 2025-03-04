@@ -20,6 +20,8 @@ from obspy.taup import TauPyModel
 from obspy.signal.quality_control import MSEEDMetadata 
 # Glenn Thompson, Feb 2021
 from InventoryTools import has_response
+from obspy.core.event import Event, Origin, Magnitude, Catalog, ResourceIdentifier, Comment   
+
 
 #######################################################################
 ##                Trace  tools                                       ##
@@ -428,27 +430,57 @@ def _adjust_band_code_for_sensor_type(current_band_code, expected_band_code, sho
     
     return expected_band_code
 
-def fix_trace_id(trace):
+def _fix_legacy_id(trace):
+    if trace.stats.station == 'IRIG':
+        trace.stats.channel = 'ACE'
+    else:
+        if trace.stats.channel=='v':
+            trace.stats.channel='EHZ'
+        elif trace.stats.channel=='n':
+            trace.stats.channel='EHN'
+        elif trace.stats.channel=='e':
+            trace.stats.channel='EHE'                       
+        
+        orientation = trace.stats.station[3].strip()  # Position 4        
+        if orientation in "ZNE":  # Standard orientations
+            channel = f"EH{orientation}"
+        elif orientation == "L":  # Special case for "L"
+            channel = "ELZ"
+        elif orientation == 'P': # assume pressure sensor?
+            channel = 'EDF'
+        else:
+            channel = f'??{orientation}'
+            #raise ValueError(f"Unknown orientation '{orientation}' in '{station}'")
+        trace.stats.channel = channel
+        trace.stats.station = trace.stats.station[0:3].strip()  # Positions 1-3
+
+def fix_trace_id(trace, legacy=False, netcode=None):
+    # note: for MVO data call libMVO.fix_trace_id_mvo
     changed = False
 
-    if trace.stats.network == 'MV':
-        # we need to map MVO non-SEED compliant ids to SEED ids
-        libMVO.fix_times(trace)
-        libMVO.fix_sample_rate(trace)
-        trace.id = libMVO.correct_nslc(trace.id, trace.stats.sampling_rate)
-        changed = True
+    if legacy: # indicates an old VDAP/analog telemetry network where 4-character station code includes orientation
+        _fix_legacy_id(trace)
+
+    if not trace.stats.network and netcode:
+        trace.stats.network = netcode
+        changed = True   
     
     current_id = trace.id
     net, sta, loc, chan = current_id.split('.')
     sampling_rate = trace.stats.sampling_rate
     current_band_code = chan[0]
 
-    # Determine the correct band code
-    expected_band_code = _get_band_code(sampling_rate) # this assumes broadband sensor
+    # if not an analog QC channel, fix band code
+    if chan[0]=='A':
+        pass
+    else:
 
-    # adjust if short-period sensor
-    expected_band_code = _adjust_band_code_for_sensor_type(current_band_code, expected_band_code)
-    chan = expected_band_code + chan[1:]
+        # Determine the correct band code
+        expected_band_code = _get_band_code(sampling_rate) # this assumes broadband sensor
+
+        # adjust if short-period sensor
+        expected_band_code = _adjust_band_code_for_sensor_type(current_band_code, expected_band_code)
+        chan = expected_band_code + chan[1:]
 
     # make sure location is 0 or 2 characters
     if len(loc)==1:
@@ -462,13 +494,13 @@ def fix_trace_id(trace):
             sta = 'BCHH'
 
     expected_id = '.'.join([net,sta,loc,chan])
-    print(current_id, expected_id)
+    #print(current_id, expected_id)
 
     if (expected_id != current_id):
         changed = True
         print(f"Current ID: {current_id}, Expected: {expected_id}) based on fs={sampling_rate}")
         trace.id = expected_id
-    print(trace)
+    #print(trace)
     return changed 
 
 def check_write_read(tr):
@@ -1138,15 +1170,16 @@ def trim_to_event(st, mintime, maxtime, pretrig=10, posttrig=10):
 #######################################################################
 
 
-        
-def index_waveformfiles(wffiles):
+     
+def index_waveformfiles(wffiles, ampeng=False, events=True):
     """ 
     Take a list of seismic waveform data files and return a dataframe similar to a wfdisc table
 
     Created for CALIPSO data archive from Alan Linde.
     """
-
     wfdisc_df = pd.DataFrame()
+    file_index = []
+    event_id = []
     traceids = []
     starttimes = []
     endtimes = []
@@ -1155,7 +1188,14 @@ def index_waveformfiles(wffiles):
     ddirs = []
     dfiles = []
     npts = []
-    for wffile in sorted(wffiles):
+    duration = []
+    waveform_id = []
+    if ampeng:
+        amp = []
+        eng = []
+
+    events = []
+    for filenum, wffile in enumerate(sorted(wffiles)):
         dfile = os.path.basename(wffile)
         ddir = os.path.dirname(wffile)
         try:
@@ -1165,7 +1205,17 @@ def index_waveformfiles(wffiles):
             print('Could not read %s\n' % wffile)
             next
         else:
-            for this_tr in this_st:
+            ev = Event()
+            comments = []
+            stime = this_st[0].stats.starttime
+            sfilename = stime.strftime("%d-%H%M-%S") + "L.S" + stime.strftime("%Y%m")  
+            comments.append(Comment(text=f'wavfile: {wffile}'))
+            comments.append(Comment(text=f'sfile: {sfilename}'))                      
+            for tracenum, this_tr in enumerate(this_st):
+                file_index.append(filenum)
+                event_id.append(ev.resource_id)  
+                wid = ResourceIdentifier(f'{dfile},[{tracenum}]')
+                waveform_id.append(wid)
                 r = this_tr.stats
                 traceids.append(this_tr.id)
                 starttimes.append(r.starttime)
@@ -1175,13 +1225,32 @@ def index_waveformfiles(wffiles):
                 ddirs.append(ddir)
                 dfiles.append(dfile)
                 npts.append(r.npts)
+                duration.append(r.endtime - r.starttime)
+                if ampeng:
+                    try:
+                        this_tr.detrend('linear')
+                    except:
+                        this_tr.detrend('constant')
+                    y = abs(this_tr.data)
+                    amp.append(np.nanmax(y))
+                    y = np.nan_to_num(y, nan=0)
+                    eng.append(np.sum(np.square(y)))
+            ev.comments = comments
+        events.append(ev)
+      
     if wffiles:
-        wfdisc_dict = {'traceID':traceids, 'starttime':starttimes, 'endtime':endtimes, 'npts':npts, 
-                       'sampling_rate':sampling_rates, 'calib':calibs, 'ddir':ddirs, 'dfile':dfiles}
-        #print(wfdisc_dict)
+        wfdisc_dict = {'file_index':file_index, 'event_id':event_id, 'waveform_id':waveform_id, 'traceID':traceids, 'starttime':starttimes, 'endtime':endtimes, 'npts':npts, 
+                       'sampling_rate':sampling_rates, 'calib':calibs, 'ddir':ddirs, 'dfile':dfiles, 'duration':duration}
+        if ampeng:
+            wfdisc_dict['amplitude']=amp
+            wfdisc_dict['energy']=eng
         wfdisc_df = pd.DataFrame.from_dict(wfdisc_dict)  
         wfdisc_df.sort_values(['starttime'], ascending=[True], inplace=True)
-    return wfdisc_df
+    if events:
+        cat = Catalog(events=events) 
+        return wfdisc_df, cat
+    else:
+        return wfdisc_df
 
 
 
@@ -1526,3 +1595,143 @@ def syngine2stream(station, lat, lon, GCMTeventID, mseedfile):
         synth_disp.write(mseedfile)
     return synth_disp
 
+def read_DMX_file(DMXfile, fix=True, defaultnet=''):
+    # DMX read support now (2023) included in ObsPy. Was not available for the Montserrat ASN conversion in 2019.
+    # This produces same result as converting DMX to SAC with sud2sac.exe in Win-SUDS, and then reading into ObsPy
+    # Has also been tested against sud2gse.exe.
+    # sud2msed.exe is messier, because that program completely loses all tr.id info when converting, so all tr.id set to ...
+    # Tested on data from Montserrat 1995-6 and Pinatubo 1991
+    #
+    # ObsPy DMX reader inserts "unk" in place of an unknown network. We do not want this.
+    #
+    # ObsPy DMX reader reads DMXfile as uint16 and so is all +ve. 
+    # sud2sac.exe converts to numbers either side of 0. 
+    # Subtracting 2048 from each sample of tr.data corrects data read in using ObsPy DMX reader to match that from SAC
+    #
+    # Obspy Miniseed writer needs float, not int, so recast as float.
+    #
+    # Passing fix=False will just run ObsPy DMX reader without applying any corrections.
+
+    print('Reading %s' % DMXfile)
+    st = Stream()
+    try:
+        st = read(DMXfile)
+        print('- read okay')
+        if fix:
+            for tr in st:
+                # ObsPy DMX reader sets network to "unk" if blank. We'd rather keep it blank, or 
+                # set with explicitly passing defaultnet named argument.
+                if tr.stats.network == 'unk':
+                    tr.stats.network = defaultnet
+                    
+                # ObsPy DMX reader falses adds 2048 to each data sample. Remove that here.
+                # Also change data type of tr.data from uint to float so we can write trace to MiniSEED later   
+                tr.data = tr.data.astype(float) - 2048.0 
+    except:
+        print('- ObsPy cannot read this demultiplexed SUDS file')        
+    return st
+
+
+
+def parse_hypo71_line(line):
+    """
+    Parses a single line of HYPO71 output format using fixed column positions.
+    """
+    try:
+        # Extract fields using fixed positions
+        year = int(line[0:2])
+        month = int(line[2:4])
+        day = int(line[4:6])
+        hour = int(line[7:9]) if line[7:9].strip() else 0
+        minute = int(line[9:11]) if line[9:11].strip() else 0
+        seconds = float(line[12:17]) if line[12:17].strip() else 0
+        
+        lat_deg = int(line[17:20].strip())
+        lat_min = float(line[21:26].strip())
+        lat_hem = line[20].strip().upper()
+        
+        lon_deg = int(line[27:30].strip())
+        lon_min = float(line[31:36].strip())
+        lon_hem = line[30].strip().upper()
+        
+        depth = float(line[37:43].strip())
+        magnitude = float(line[44:50].strip())
+        n_ass = int(line[51:53].strip())
+        time_residual = float(line[62:].strip())
+        
+        # Handle two-digit years
+        year = year + 1900 if year >= 70 else year + 2000
+
+        # handle minute=60
+        add_seconds = 0
+        if minute==60:
+            minute = 0
+            add_seconds = 60       
+        
+        # Convert to UTCDateTime
+        origin_time = UTCDateTime(year, month, day, hour, minute, seconds) + add_seconds
+        
+        # Convert latitude and longitude
+        latitude = lat_deg + lat_min / 60.0
+        if lat_hem == 'S':
+            latitude = -latitude
+        
+        longitude = lon_deg + lon_min / 60.0
+        if lon_hem == 'W':
+            longitude = -longitude
+        
+        return {
+            "origin_time": origin_time,
+            "latitude": latitude,
+            "longitude": longitude,
+            "depth": depth,
+            "magnitude": magnitude,
+            "n_ass": n_ass,
+            "time_residual": time_residual
+        }
+    except Exception as e:
+        print(f"Failed to parse line: {line.strip()} | Error: {e}")
+        return None    
+
+def parse_hypo71_file(file_path):
+    """
+    Parses a HYPO71 earthquake catalog file into an ObsPy Catalog object.
+    """
+    catalog = Catalog()
+    parsed = 0
+    not_parsed = 0
+    unparsed_lines = []
+    with open(file_path, "r") as file:
+        for line in file:
+            #print(line)
+            #event_data = parse_hypo71_line(line.strip())
+            #if not event_data:
+            event_data = parse_hypo71_line(line.strip())
+            if event_data:
+                parsed +=1
+                #print(event_data)
+                event = Event()
+                origin = Origin(
+                    time=event_data["origin_time"],
+                    latitude=event_data["latitude"],
+                    longitude=event_data["longitude"],
+                    depth=event_data["depth"] * 1000  # Convert km to meters
+                )
+                magnitude = Magnitude(mag=event_data["magnitude"])
+                
+                # Store number of associated arrivals and time residual as comments
+                origin.comments.append(Comment(text=f"n_ass: {event_data['n_ass']}"))
+                origin.comments.append(Comment(text=f"time_residual: {event_data['time_residual']} sec"))
+
+                event.origins.append(origin)
+                event.magnitudes.append(magnitude)
+                #print(event)
+                catalog.append(event)
+            else:
+                print(line)
+                not_parsed +=1
+                unparsed_lines.append(line)
+        
+    print(f'parsed={parsed}, not parsed={not_parsed}')
+
+    return catalog, unparsed_lines

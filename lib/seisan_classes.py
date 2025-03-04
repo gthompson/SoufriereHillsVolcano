@@ -898,35 +898,41 @@ def parse_STATION0HYP(station0hypfile):
     if os.path.exists(station0hypfile):
         fptr = open(station0hypfile,'r')
         for line in fptr:
-            line = line.strip()
-            if len(line)==25:
-                station = line[0:4]
-                latdeg = line[4:6]
-                if latdeg != '16':
-                    print(line)
+            line = line.replace('^M','').strip()
+            if 'HEAD' in line or 'TEST' in line or len(line)<25:
+                continue
+            #print('0123456789'*8)
+            latsign = 1
+            lonsign = 1
+            if len(line)>=25 or line[-1]==8:
+                #print(line)
+                if not line[:4].isalpha():
                     continue
-                latmin = line[6:8]
-                latsec = line[9:11]
-                hemisphere = line[11]
-                if hemisphere == 'N':
-                    latsign = 1
-                elif hemisphere == 'S':
-                    latsign = -1 
+                station = line[0:4].strip()
+                latdeg = int(line[4:6])
+
+                if line[8]=='.':
+                    latmin = float(line[6:11])
                 else:
-                    #print(line)
-                    continue
-                londeg = line[13:15]
-                lonmin = line[15:17]
-                lonsec = line[18:20]
-                lonsign = 1
-                if line[20]=='W':
+                    latmin = float(line[6:8]) + float(line[9:11])/60
+                if line[11].upper() in 'NS':
+                    hemisphere = line[11]
+                    if hemisphere.upper() == 'S':
+                        latsign = -1
+
+                londeg = int(line[12:15])
+                if line[17]=='.':
+                    lonmin = float(line[15:20])
+                else:
+                    lonmin = float(line[15:17]) + float(line[18:20])/60
+                if line[20].upper()=='W':
                     lonsign = -1
-                elev = line[21:25].strip()
+                elev = float(line[21:30].strip())
                 station_dict = {}
                 station_dict['name'] = station
-                station_dict['lat'] = (float(latdeg) + float(latmin)/60 + float(latsec)/3600) * latsign
-                station_dict['lon'] = (float(londeg) + float(lonmin)/60 + float(lonsec)/3600) * lonsign
-                station_dict['elev'] = float(elev)
+                station_dict['lat'] = (latdeg + latmin/60)  * latsign
+                station_dict['lon'] = (londeg + lonmin/60)  * lonsign
+                station_dict['elev'] = elev
                 
                 station_locations.append(station_dict)
         fptr.close()
@@ -947,6 +953,14 @@ def add_station_locations(st, station_locationsDF):
             tr.stats['lon'] = None
             tr.stats['elev'] = None         
 
+def stream2wavfile(st, SEISAN_TOP, seisanDBname):
+    # Establishing the Seisan WAV filename corresponding to this Stream
+    WAVbasename = "%sM.%s_%03d" % (st[0].stats.starttime.strftime('%Y-%m-%d-%H%M-%S'), seisanDBname, len(st))
+    WAVfilename = os.path.join(SEISAN_TOP, 'WAV', seisanDBname, 
+        st[0].stats.starttime.strftime('%Y'), 
+        st[0].stats.starttime.strftime('%m'),
+        WAVbasename)    
+    return WAVfilename
 
 def get_sfile_list(SEISAN_DATA, DB, startdate, enddate): 
     """
