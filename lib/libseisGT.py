@@ -279,7 +279,7 @@ def clean_trace(tr, taperFraction=0.05, filterType="bandpass", freq=[0.1, 20.0],
 '''
 
 def simple_clean(tr, taperFraction=0.05, filterType="bandpass", freq=[0.1, 20.0], \
-                corners=2, zerophase=True, inv=None, outputType='VEL'):
+                corners=2, zerophase=True, inv=None, outputType='VEL', verbose=False):
 
 
     if not 'history' in tr.stats:
@@ -289,11 +289,13 @@ def simple_clean(tr, taperFraction=0.05, filterType="bandpass", freq=[0.1, 20.0]
         tr.stats['units'] = 'Counts'           
     
     # remove absurd values
-    print('- clipping')
+    if verbose:
+        print('- clipping')
     clip_trace(tr) # could add function here to correct for clipping - algorithms exist
 
     # remove single sample spikes
-    print('- removing single sample spikes')
+    if verbose:
+        print('- removing single sample spikes')
     remove_single_sample_spikes(tr)
     
     # save the start and end times for later 
@@ -307,14 +309,16 @@ def simple_clean(tr, taperFraction=0.05, filterType="bandpass", freq=[0.1, 20.0]
     if npts_pad_seconds < 1/freq[0]: # impose a minimum pad length of 10-seconds
         npts_pad_seconds = 1/freq[0]
     
-    print('- padding')
+    if verbose:
+        print('- padding')
     pad_trace(tr, npts_pad_seconds)
     max_fraction = npts_pad / tr.stats.npts
 
     # filter or fully correct
     if inv:
         # fully correct
-        print('- removing instrument response')
+        if verbose:
+            print('- removing instrument response')
         #removeInstrumentResponse(tr, None, outputType = outputType, inventory = inv, taperFraction=0)
         tr.remove_response(inventory=inv, output=outputType, \
                         pre_filt=(freq[0]/1.5, freq[0], freq[1], freq[1]*1.5), \
@@ -326,7 +330,8 @@ def simple_clean(tr, taperFraction=0.05, filterType="bandpass", freq=[0.1, 20.0]
         # detrend, taper, filter
         if not 'detrended' in tr.stats.history:
             try:
-                print('- detrending')
+                if verbose:
+                    print('- detrending')
                 tr.detrend('linear')
                 
             except:
@@ -340,11 +345,13 @@ def simple_clean(tr, taperFraction=0.05, filterType="bandpass", freq=[0.1, 20.0]
             add_to_trace_history(tr, 'detrended')
      
         if not 'tapered' in tr.stats.history:
-            print('- tapering')
+            if verbose:
+                print('- tapering')
             tr.taper(max_percentage=max_fraction, type="hann") 
             add_to_trace_history(tr, 'tapered')        
     
-        print('- filtering')
+        if verbose:
+            print('- filtering')
         if filterType == 'bandpass':
             tr.filter(filterType, freqmin=freq[0], freqmax=freq[1], corners=corners, zerophase=zerophase)
         else:    
@@ -353,7 +360,8 @@ def simple_clean(tr, taperFraction=0.05, filterType="bandpass", freq=[0.1, 20.0]
         add_to_trace_history(tr, filterType)  
 
     # remove the pad
-    print('- unpadding')
+    if verbose:
+        print('- unpadding')
     unpad_trace(tr)          
 
     '''
@@ -454,7 +462,7 @@ def _fix_legacy_id(trace):
         trace.stats.channel = channel
         trace.stats.station = trace.stats.station[0:3].strip()  # Positions 1-3
 
-def fix_trace_id(trace, legacy=False, netcode=None):
+def fix_trace_id(trace, legacy=False, netcode=None, verbose=False):
     # note: for MVO data call libMVO.fix_trace_id_mvo
     changed = False
 
@@ -498,7 +506,8 @@ def fix_trace_id(trace, legacy=False, netcode=None):
 
     if (expected_id != current_id):
         changed = True
-        print(f"Current ID: {current_id}, Expected: {expected_id}) based on fs={sampling_rate}")
+        if verbose:
+            print(f"Current ID: {current_id}, Expected: {expected_id}) based on fs={sampling_rate}")
         trace.id = expected_id
     #print(trace)
     return changed 
@@ -546,8 +555,11 @@ In terms of order of application:
 
 
 
-def process_trace(tr, bool_despike=True, bool_clean=True, inv=None, quality_threshold=0.0, taperFraction=0.05, filterType="bandpass", freq=[0.5, 30.0], corners=6, zerophase=False, outputType='VEL', miniseed_qc=True):
-    print(f'Processing {tr}')
+def process_trace(tr, bool_despike=True, bool_clean=True, inv=None, quality_threshold=0.0, taperFraction=0.05, \
+                  filterType="bandpass", freq=[0.5, 30.0], corners=6, zerophase=False, outputType='VEL', \
+                    miniseed_qc=True, verbose=False):
+    if verbose:
+        print(f'Processing {tr}')
     if not 'history' in tr.stats:
         tr.stats['history'] = list()    
         
@@ -572,7 +584,7 @@ def process_trace(tr, bool_despike=True, bool_clean=True, inv=None, quality_thre
         # Check for spikes - been seeing this in 1998 data
         if bool_despike:
             check_for_spikes(tr)
-    else:
+    elif verbose:
         print(f'- not despiking. qf={tr.stats.quality_factor}')
 
     if tr.stats.quality_factor > quality_threshold:
@@ -599,7 +611,7 @@ def process_trace(tr, bool_despike=True, bool_clean=True, inv=None, quality_thre
         if not check_write_read(tr):
             # fi cannot write to miniseed and read back again, lower the quality_factor?
         '''
-    else:
+    elif verbose:
         print(f'- not cleaning. qf={tr.stats.quality_factor}')
     return True
 
@@ -1051,7 +1063,8 @@ def removeInstrumentResponse(st_or_tr, preFilter = (1, 1.5, 30.0, 45.0), outputT
     return
     '''
 
-def detect_network_event(st_in, minchans=None, threshon=3.5, threshoff=1.0, sta=0.5, lta=5.0, pad=0.0, best_only=False):
+def detect_network_event(st_in, minchans=None, threshon=3.5, threshoff=1.0, \
+                         sta=0.5, lta=5.0, pad=0.0, best_only=False, verbose=False):
     """
     Run a full network event detector/associator 
     
@@ -1086,7 +1099,8 @@ def detect_network_event(st_in, minchans=None, threshon=3.5, threshoff=1.0, sta=
             
     if not minchans:
         minchans = max(( int(len(st)/2), 2)) # half the channels or 2, whichever is greater
-    print('minchans=',minchans)
+    if verbose:
+        print('minchans=',minchans)
     trig = coincidence_trigger("recstalta", threshon, threshoff, st, minchans, sta=sta, lta=lta, max_trigger_length=180, delete_long_trigger=True, details=True) # 0.5s, 10s
 
 

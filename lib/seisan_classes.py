@@ -10,7 +10,7 @@ import pandas as pd
 #import numpy as np
 #import obspy
 #import libSeisan2Pandas as seisan
-from libseisGT import process_trace, remove_empty_traces, remove_low_quality_traces
+from libseisGT import process_trace, remove_low_quality_traces
 
 class Sfile:
     'Base class for Sfile parameters'
@@ -85,8 +85,9 @@ class Sfile:
                     self.wavfiles.append(os.path.join(wavpath, wavfile))
 
         
-    def parse_sfile(self):
-        print('Parsing ',self.path)
+    def parse_sfile(self, verbose=False):
+        if verbose:
+            print('Parsing ',self.path)
         fptr = open(self.path,'r') 
         row = fptr.readlines()
         fptr.close()
@@ -121,7 +122,8 @@ class Sfile:
  
             if len(line) < 80:
                 if len(line.strip()) > 0:
-                     print("Processing %s: ignoring this line: %s" % (self.path, line, ) )
+                     if verbose:
+                        print("Processing %s: ignoring this line: %s" % (self.path, line, ) )
                 continue
 
             if line[79] == '1':
@@ -145,9 +147,10 @@ class Sfile:
                             osecond=osecond/100   
                             self.otime = dt.datetime(oyear, omonth, oday, ohour, ominute, int(osecond), 1000 * int(  (osecond - int(osecond)) * 1000) )
                     except:
-                        print('Failed 1-21:\n')
-                        print('01233456789'*8)
-                        print(line)
+                        if verbose:
+                            print('Failed 1-21:\n')
+                            print('01233456789'*8)
+                            print(line)
                                         
                 self.mainclass = line[21:23].strip()
                 if line[23:30].strip():
@@ -163,9 +166,10 @@ class Sfile:
                     try:
                         self.no_sta=int(nostastr)
                     except:
-                        print('Failed 21-52:\n')
-                        print('01233456789'*8)
-                        print(line)
+                        if verbose:
+                            print('Failed 21-52:\n')
+                            print('01233456789'*8)
+                            print(line)
                 else:
                     self.no_sta=0
                 if line[51:55].strip():
@@ -177,9 +181,10 @@ class Sfile:
                         self.magnitude_type.append(line[59])
                         self.magnitude_agency.append(line[60:63].strip())
                     except:
-                        print('Failed 55-64:\n')
-                        print('01233456789'*8)
-                        print(line)
+                        if verbose:
+                            print('Failed 55-64:\n')
+                            print('01233456789'*8)
+                            print(line)
                 if line[63:67].strip():
                     try:
                         self.magnitude.append(float(line[63:67]))
@@ -187,9 +192,10 @@ class Sfile:
                         self.magnitude_type.append(line[67])
                         self.magnitude_agency.append(line[68:71].strip())
                     except:
-                        print('Failed 63-72:\n')
-                        print('01233456789'*8)
-                        print(line)
+                        if verbose:
+                            print('Failed 63-72:\n')
+                            print('01233456789'*8)
+                            print(line)
                 if line[71:75].strip():
                     try:
                         self.magnitude.append(float(line[71:75]))
@@ -197,9 +203,10 @@ class Sfile:
                         self.magnitude_type.append(line[75])
                         self.magnitude_agency.append(line[76:79].strip())
                     except:
-                        print('Failed 71-80:\n')
-                        print('01233456789'*8)
-                        print(line)
+                        if verbose:
+                            print('Failed 71-80:\n')
+                            print('01233456789'*8)
+                            print(line)
                         pass
 #                else: #If there is an additional line1 process the additional magnitudes
 #                    if line[55:59] != '    ':
@@ -320,9 +327,10 @@ class Sfile:
                     aday = atime.day
                     atime = dt.datetime(ayear, amonth, aday, ahour, aminute, asecond, 1000 * amillisecond)
                 except:
-                    print('Failed 18-29:\n')
-                    print('01233456789'*8)
-                    print(line)
+                    if verbose:
+                        print('Failed 18-29:\n')
+                        print('01233456789'*8)
+                        print(line)
                 if aphase == 'AMPL':
                     aamp = line[33:40].strip()
                     aper = line[40:45].strip()
@@ -540,8 +548,9 @@ class Sfile:
         for i, originobj in enumerate(evobj.origins):
             print(i, originobj)
             
-    def parse_sfile_fast(self):
-        print('Parsing ',self.path)
+    def parse_sfile_fast(self, verbose=False):
+        if verbose:
+            print('Parsing ',self.path)
         fptr = open(self.path,'r') 
         row = fptr.readlines()
         fptr.close()
@@ -574,8 +583,6 @@ class Sfile:
                 for wavfile in wavfiles:
                     wavfullpath = os.path.join(os.path.dirname(self.path).replace('REA','WAV'), wavfile)
                     self.wavfiles.append(Wavfile(wavfullpath))
-
-
 
             
 def spath2datetime(spath):
@@ -995,7 +1002,9 @@ def read_seisandb_apply_custom_function_to_each_event(startdate, enddate, \
     SEISAN_DATA='/data/SEISAN_DB', DB='MVOE_', inv=None, \
     post_process_function=None, verbose=False, bool_clean=True, \
         plot=False, valid_subclasses='', quality_threshold=1.0, \
-            outputType='VEL', freq=[0.5, 30.0]):
+            outputType=None, freq=[0.5, 30.0], seismic_only=False, vertical_only=False):
+    if vertical_only or outputType:
+        seismic_only = True
 
     nordicfilelist = get_sfile_list(SEISAN_DATA, DB, startdate, enddate) 
 
@@ -1012,36 +1021,37 @@ def read_seisandb_apply_custom_function_to_each_event(startdate, enddate, \
                     continue
             #sfileindex_dict = {'sfile':os.path.basename(s.path), 'DSN_wavfile':None, 'DSN_exists':False, 'ASN_wavfile':None, 'ASN_exists':False, 'corrected_DSN_mseed':None, 'corrected_ASN_mseed':None, 'mainclass':s.mainclass, 'subclass':s.subclass}
         except:
+            print(f'Sfile: {os.path.basename(nfile)}; WAVfile: None\n')
             continue
 
         for item in ['wavfile1', 'wavfile2']: # there can be up to 2 wavfiles per sfile, One from DSN and one from ASN. But here we are only interested in DSN, and these have 'MVO' in the filename
             wavfile = d[item]
+            wavfound = False
             if wavfile and 'MVO' in os.path.basename(wavfile):               
-                st = Stream()
-                if not os.path.isfile(wavfile):
+                #st = Stream()
+                if os.path.isfile(wavfile):
+                    wavfound = True
+                else:
                     altbase = os.path.basename(wavfile).split('.')[0][0:-3]
                     pattern = os.path.join(os.path.dirname(wavfile), altbase+'*')
                     similar_wavfiles = glob(pattern)
                     if len(similar_wavfiles)==1:
                         wavfile = similar_wavfiles[0]
-                    else:
-                        print(f'got {len(similar_wavfiles)} similar wavfiles matching {pattern}')                          
-                
+                        wavfound = True
+            
+            if wavfound:
+                print(f'Sfile: {os.path.basename(nfile)}; WAVfile: {os.path.basename(wavfile)}\n')
                 try:
-                    if verbose:
-                        print(f'Trying to read {wavfile}')
-                    st = read_monty_wavfile_and_correct_traceIDs(wavfile, bool_ASN=False, verbose=verbose)
-                    #if plot:
-                    #    st.plot(equal_scale=False);
-                    st = remove_empty_traces(st)
-                    if verbose:
-                        print(st)
+                    st = read_monty_wavfile_and_correct_traceIDs(wavfile, bool_ASN=False, \
+                                                                 verbose=verbose, seismic_only=seismic_only, vertical_only=vertical_only)
                 except:
                     if verbose:
                         print(f'could not load {wavfile}')
                 else:
+                    if verbose:
+                        print(st)                    
                     if len(st) > 0:
-                        for tr in st:
+                        for tr in st:                  
                             if verbose:
                                 print('\n', f'Processing {tr}')
                             if process_trace(tr, bool_despike=True, \
@@ -1071,7 +1081,11 @@ def read_seisandb_apply_custom_function_to_each_event(startdate, enddate, \
                                 if plot:
                                     st.plot(equal_scale=False);
                         else:
-                            print('- no traces in Stream after processing')
+                            if verbose:
+                                print('- no traces in Stream after processing')
 
                     else:
-                        print('- no traces in Stream after loading')
+                        if verbose:
+                            print('- no traces in Stream after loading')
+            else:
+                print(f'Sfile: {os.path.basename(nfile)}; WAVfile: None\n')

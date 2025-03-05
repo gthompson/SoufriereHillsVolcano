@@ -8,7 +8,7 @@ from obspy import read_inventory, read, Stream, Trace
 
 LIBpath = os.path.join( os.getenv('HOME'),'src','kitchensinkGT', 'LIB')
 sys.path.append(LIBpath)
-from libseisGT import get_seed_band_code, fix_trace_id
+from libseisGT import get_seed_band_code, fix_trace_id, remove_empty_traces
 from metrics import process_trace, ampengfft
 sys.path.append(os.path.join( os.getenv('HOME'),'src', 'icewebPy') )
 import IceWeb
@@ -348,12 +348,24 @@ def fix_times(st):
                       
             
 # bool_ASN: set True only if data are from MVO analog seismic network
-def read_monty_wavfile_and_correct_traceIDs(wavpath, bool_ASN=False, verbose=False):
+def read_monty_wavfile_and_correct_traceIDs(wavpath, bool_ASN=False, verbose=False, \
+                                            seismic_only=False, vertical_only=False):
     if os.path.exists(wavpath):
         st = read(wavpath)
     else:
         print('ERROR. %s not found.' % wavpath)
         return Stream()
+    
+    if vertical_only:
+        st = st.select(component='Z')
+    elif seismic_only:
+        for tr in st:
+            if not tr.stats.channel[1] in 'HL':
+                st.remove(tr)
+    remove_empty_traces(st)
+    for tr in st:
+        fix_trace_id_mvo(tr)
+    '''
     if verbose:
         print('- checking sampling rate')
     fix_sample_rate(st) # set any sample rates around 74.3 - 75.7 Hz to 75.0 Hz
@@ -363,6 +375,7 @@ def read_monty_wavfile_and_correct_traceIDs(wavpath, bool_ASN=False, verbose=Fal
     if verbose:
         print('- checking year not before 1995')    
     fix_times(st)
+    '''
 
     return st
 

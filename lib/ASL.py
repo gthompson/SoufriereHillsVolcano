@@ -299,7 +299,7 @@ def plot_DSAM(dsamobj, gridobj, nodenum, metric='mean', DEM_DIR=None):
 # what I really should be plotting is the corrections at node 100
 
 class ASL:
-    def __init__(self, samobject, metric, inventory, gridobj):
+    def __init__(self, samobject, metric, inventory, gridobj, window_seconds):
         ''' 
         ASL: Simple amplitude-based source location for volcano-seismic data 
         This program takes a DSAM object as input
@@ -324,6 +324,7 @@ class ASL:
         self.node_distances_km = {}
         self.station_coordinates = {}
         self.amplitude_corrections = {}
+        self.window_seconds = window_seconds
         
     def setup(self, surfaceWaves=False):  
         self.compute_grid_distances()
@@ -389,11 +390,20 @@ class ASL:
             corrections[seed_id] = gsc * isc
 
         self.amplitude_corrections = corrections
-            
+
+    def metric2stream(self):
+        st = self.samobject.to_stream(metric=self.metric)
+        if st[0].stats.sampling_rate != self.window_seconds:
+            window = np.ones(self.window_seconds) / self.window_seconds
+            for tr in st:
+                tr.data = np.convolve(tr.data, window, mode='same')
+        return st        
+    
     def locate(self):
         gridlat = self.gridobj.gridlat.reshape(-1)
         gridlon = self.gridobj.gridlon.reshape(-1)
-        st = self.samobject.to_stream(metric=self.metric)
+        st = self.metric2stream()
+
         seed_ids = [tr.id for tr in st]
         lendata = len(st[0].data)
         #print(seed_ids[0])
@@ -441,7 +451,7 @@ class ASL:
     def fast_locate(self):
         gridlat = self.gridobj.gridlat.reshape(-1)
         gridlon = self.gridobj.gridlon.reshape(-1)
-        st = self.samobject.to_stream(metric=self.metric)
+        st = self.metric2stream()
         seed_ids = [tr.id for tr in st]
 
         t = st[0].times('utcdatetime')
@@ -498,7 +508,7 @@ class ASL:
                     symsize = scale * np.ones(len(DR))
                 else:
                     symsize = np.divide(DR, np.nanmax(DR))*scale
-                print('symbol size = ',symsize)
+                #print('symbol size = ',symsize)
      
                     
                 maxi = np.argmax(DR)
@@ -514,11 +524,7 @@ class ASL:
                         symsize = symsize[ind]
                 pygmt.makecpt(cmap="viridis", series=[0, len(x)])
                 timecolor = [i for i in range(len(x))]
-                try:
-                    fig.plot(x=x, y=y, size=symsize, style="cc", pen='1p,black', color=timecolor, cmap=True)
-                except Exception as e:
-                    print(e)
-                    fig.plot(x=x, y=y, size=symsize, style="cc", pen='1p,black', fill='black', cmap=True)
+                fig.plot(x=x, y=y, size=symsize, style="cc", pen=None, fill=timecolor, cmap=True)
                 fig.colorbar(
                     frame='+l"Sequence"',
                     #     position="x11.5c/6.6c+w6c+jTC+v" #for vertical colorbar
