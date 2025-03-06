@@ -969,7 +969,7 @@ def stream2wavfile(st, SEISAN_TOP, seisanDBname):
         WAVbasename)    
     return WAVfilename
 
-def get_sfile_list(SEISAN_DATA, DB, startdate, enddate): 
+def get_sfile_list(SEISAN_DATA, DB, startdate, enddate, verbose=False): 
     """
     make a list of Sfiles between 2 dates
     """
@@ -977,6 +977,9 @@ def get_sfile_list(SEISAN_DATA, DB, startdate, enddate):
     event_list=[]
     reapath = os.path.join(SEISAN_DATA, 'REA', DB)
     years=list(range(startdate.year,enddate.year+1))
+    if verbose:
+        print(f'REA path = {reapath}')
+        print(f'years = {years}')
     for year in years:
         if year==enddate.year and year==startdate.year:
             months=list(range(startdate.month,enddate.month+1))
@@ -987,7 +990,8 @@ def get_sfile_list(SEISAN_DATA, DB, startdate, enddate):
         else:
             months=list(range(1,13))
         for month in months:
-            #print month
+            if verbose:
+                print(f'month = {month}')
             yearmonthdir=os.path.join(reapath, "%04d" % year, "%02d" % month)
             flist=sorted(glob(os.path.join(yearmonthdir,"*L.S*")))
             for f in flist:
@@ -1002,11 +1006,11 @@ def read_seisandb_apply_custom_function_to_each_event(startdate, enddate, \
     SEISAN_DATA='/data/SEISAN_DB', DB='MVOE_', inv=None, \
     post_process_function=None, verbose=False, bool_clean=True, \
         plot=False, valid_subclasses='', quality_threshold=1.0, \
-            outputType=None, freq=[0.5, 30.0], seismic_only=False, vertical_only=False):
+            outputType=None, freq=[0.5, 30.0], seismic_only=False, vertical_only=False, **kwargs):
     if vertical_only or outputType:
         seismic_only = True
 
-    nordicfilelist = get_sfile_list(SEISAN_DATA, DB, startdate, enddate) 
+    nordicfilelist = get_sfile_list(SEISAN_DATA, DB, startdate, enddate, verbose=verbose) 
 
     if verbose:
         print(nordicfilelist) 
@@ -1048,6 +1052,7 @@ def read_seisandb_apply_custom_function_to_each_event(startdate, enddate, \
                     if verbose:
                         print(f'could not load {wavfile}')
                 else:
+                    raw_st = st.copy()
                     if verbose:
                         print(st)                    
                     if len(st) > 0:
@@ -1073,12 +1078,15 @@ def read_seisandb_apply_custom_function_to_each_event(startdate, enddate, \
 
                         if len(st)>0: 
                             if post_process_function:
-                                post_process_function(st)
+                                post_process_function(st, raw_st, **kwargs)
                             else:
                                 print('\nFinal Stream:')
                                 for tr in st:
                                     print(tr.id, tr.stats.quality_factor)
                                 if plot:
+                                    print('Raw data')
+                                    raw_st.plot(equal_scale=False);
+                                    print('Pre-processed data')
                                     st.plot(equal_scale=False);
                         else:
                             if verbose:

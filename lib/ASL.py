@@ -480,7 +480,7 @@ class ASL:
         source = {'t':t, 'lat':source_lat, 'lon':source_lon, 'DR':source_DR*1e7, 'misfit':source_misfit}
         return source
 
-    def plot(self, source=None, zoom_level=1, threshold_DR=0, scale=1, join=False, number=0, add_labels=False, equal_size=False):
+    def plot(self, source=None, zoom_level=1, threshold_DR=0, scale=1, join=False, number=0, add_labels=False, equal_size=False, outfile=None):
 
         if source:
                 
@@ -547,7 +547,10 @@ class ASL:
                     fig.plot(x=x, y=y, style="f1c/0.05c+c", fill='black', pen='0.5p,black')
                     fig.plot(x=x[maxi], y=y[maxi], size=symsize[maxi], style="cc", fill='red', pen='1p,red')
                 '''
-                fig.show();                
+                if outfile:
+                    fig.savefig(outfile)
+                else:
+                    fig.show();                
                 
             else:    
                 # Heatmap
@@ -564,7 +567,10 @@ class ASL:
                 symsize = np.sqrt(unique_locationsDF['energy'].to_numpy())
                 symsize = np.divide(symsize, np.nanmax(symsize))*scale
                 fig.plot(x=x, y=y, size=symsize, style='cc', fill='black', pen='2p,black')
-                fig.show();
+                if outfile:
+                    fig.savefig(outfile)
+                else:
+                    fig.show();   
             
             
 

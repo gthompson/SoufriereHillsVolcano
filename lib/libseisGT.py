@@ -1064,7 +1064,7 @@ def removeInstrumentResponse(st_or_tr, preFilter = (1, 1.5, 30.0, 45.0), outputT
     '''
 
 def detect_network_event(st_in, minchans=None, threshon=3.5, threshoff=1.0, \
-                         sta=0.5, lta=5.0, pad=0.0, best_only=False, verbose=False):
+                         sta=0.5, lta=5.0, pad=0.0, best_only=False, verbose=False, freq=None):
     """
     Run a full network event detector/associator 
     
@@ -1096,6 +1096,11 @@ def detect_network_event(st_in, minchans=None, threshon=3.5, threshoff=1.0, \
     if pad>0.0:
         for tr in st:
             pad_trace(tr, pad)
+
+    if freq:
+        if verbose:
+            print('Filtering traces')
+        st.filter('bandpass', freqmin=freq[0], freqmax=freq[1], corners=4, zerophase=True)
             
     if not minchans:
         minchans = max(( int(len(st)/2), 2)) # half the channels or 2, whichever is greater
