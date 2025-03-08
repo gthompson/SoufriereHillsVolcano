@@ -1064,7 +1064,7 @@ def removeInstrumentResponse(st_or_tr, preFilter = (1, 1.5, 30.0, 45.0), outputT
     '''
 
 def detect_network_event(st_in, minchans=None, threshon=3.5, threshoff=1.0, \
-                         sta=0.5, lta=5.0, pad=0.0, best_only=False, verbose=False, freq=None):
+                         sta=0.5, lta=5.0, pad=0.0, best_only=False, verbose=False, freq=None, algorithm='recstalta'):
     """
     Run a full network event detector/associator 
     
@@ -1093,6 +1093,7 @@ def detect_network_event(st_in, minchans=None, threshon=3.5, threshoff=1.0, \
  
     """
     st = st_in.copy()
+    print(st)
     if pad>0.0:
         for tr in st:
             pad_trace(tr, pad)
@@ -1106,8 +1107,13 @@ def detect_network_event(st_in, minchans=None, threshon=3.5, threshoff=1.0, \
         minchans = max(( int(len(st)/2), 2)) # half the channels or 2, whichever is greater
     if verbose:
         print('minchans=',minchans)
-    trig = coincidence_trigger("recstalta", threshon, threshoff, st, minchans, sta=sta, lta=lta, max_trigger_length=180, delete_long_trigger=True, details=True) # 0.5s, 10s
-
+    #trig = coincidence_trigger(algorithm, threshon, threshoff, st, minchans, sta=sta, lta=lta, max_trigger_length=180, delete_long_trigger=True, details=True) # 0.5s, 10s
+    if algorithm == "zdetect":
+        trig = coincidence_trigger(algorithm, threshon, threshoff, st, minchans, sta=sta)
+    elif algorithm == "carlstatrig":
+        trig = coincidence_trigger(algorithm, threshon, threshoff, st, minchans, sta=sta, lta=lta, ratio=1, quiet=True)
+    else:
+        trig = coincidence_trigger(algorithm, threshon, threshoff, st, minchans, sta=sta, lta=lta)
 
     if best_only:
         best_trig = {}

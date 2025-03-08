@@ -1078,6 +1078,7 @@ def read_seisandb_apply_custom_function_to_each_event(startdate, enddate, \
 
                         if len(st)>0: 
                             if post_process_function:
+                                print(f"Passing kwargs to {post_process_function.__name__}: {kwargs}")
                                 post_process_function(st, raw_st, **kwargs)
                             else:
                                 print('\nFinal Stream:')
