@@ -1093,7 +1093,6 @@ def detect_network_event(st_in, minchans=None, threshon=3.5, threshoff=1.0, \
  
     """
     st = st_in.copy()
-    print(st)
     if pad>0.0:
         for tr in st:
             pad_trace(tr, pad)

@@ -3,15 +3,21 @@ import glob
 import numpy as np
 import matplotlib
 import sys
-
+'''
 # Use 'MacOSX' backend if on macOS
 if sys.platform == "darwin":
-    matplotlib.use("MacOSX")  #  Works best for macOS
-    #matplotlib.use("Qt5Agg")
+    #matplotlib.use("MacOSX")  #  Works best for macOS
+    matplotlib.use("Qt5Agg")
 
 # If 'MacOSX' still crashes, use 'Qt5Agg'
 elif sys.platform.startswith("linux"):
-    matplotlib.use("Qt5Agg")  #  Linux safe choice
+    matplotlib.use("Qt5Agg")  #  Linux safe choice  
+import os
+'''
+os.environ["MPLBACKEND"] = "TkAgg"
+import matplotlib
+matplotlib.use("TkAgg")
+
 
 # Now import Matplotlib
 import matplotlib.pyplot as plt
@@ -57,8 +63,9 @@ enddate=UTCDateTime(2001,3,2)
 import numpy as np
 import matplotlib.pyplot as plt
 
-def plot_amplitude_spectra(stream):
-    plt.figure(figsize=(10, 6))
+def compute_amplitude_spectra(stream, plot=False):
+    if plot:
+        plt.figure(figsize=(10, 6))
 
     for tr in stream:
         # Get time sampling interval (dt) and number of samples (N)
@@ -75,22 +82,25 @@ def plot_amplitude_spectra(stream):
         # Plot only positive frequencies (since FFT is symmetric)
         positive_freqs = freqs[:N//2]
         positive_amplitudes = amplitude_spectrum[:N//2]
+        if plot:
+            plt.plot(positive_freqs, positive_amplitudes, label=tr.id)
+    if plot:
+        plt.xlabel("Frequency (Hz)")
+        plt.ylabel("Amplitude")
+        plt.title("Amplitude Spectrum of Seismic Signals")
+        plt.legend()
+        plt.grid()
+        plt.xlim(0, 50)  # Adjust frequency range as needed
+        plt.show()
+    else:
+        return positive_freqs, positive_amplitudes # need to add these to trace objects instead of returning them
 
-        plt.plot(positive_freqs, positive_amplitudes, label=tr.id)
-
-    plt.xlabel("Frequency (Hz)")
-    plt.ylabel("Amplitude")
-    plt.title("Amplitude Spectrum of Seismic Signals")
-    plt.legend()
-    plt.grid()
-    plt.xlim(0, 50)  # Adjust frequency range as needed
-    plt.show()
 
 
 
-
-def plot_amplitude_ratios(signal_stream, noise_stream, log_scale=False, smooth_window=None):
-    plt.figure(figsize=(10, 6))
+def compute_amplitude_ratios(signal_stream, noise_stream, log_scale=False, smooth_window=None, plot=False):
+    if plot:
+        plt.figure(figsize=(10, 6))
 
     # Create a dictionary for noise traces for quick lookup
     noise_dict = {tr.id: tr for tr in noise_stream}
@@ -140,10 +150,11 @@ def plot_amplitude_ratios(signal_stream, noise_stream, log_scale=False, smooth_w
         freqs_list.append(freqs[:N//2])
 
         # Plot only positive frequencies for individual traces
-        if log_scale:
-            plt.plot(freqs[:N//2], np.log10(amplitude_ratio[:N//2] + 1), label=trace_id, alpha=0.5, linewidth=1)
-        else:
-            plt.plot(freqs[:N//2], amplitude_ratio[:N//2], label=trace_id, alpha=0.5, linewidth=1)
+        if plot:
+            if log_scale:
+                plt.plot(freqs[:N//2], np.log10(amplitude_ratio[:N//2] + 1), label=trace_id, alpha=0.5, linewidth=1)
+            else:
+                plt.plot(freqs[:N//2], amplitude_ratio[:N//2], label=trace_id, alpha=0.5, linewidth=1)
 
     # Compute the overall spectral ratio by summing all individual ratios
     if spectral_ratios_list:
@@ -151,19 +162,29 @@ def plot_amplitude_ratios(signal_stream, noise_stream, log_scale=False, smooth_w
         avg_freqs = freqs_list[0]  # All traces should have the same frequency bins
 
         # Plot the overall spectral ratio with a thicker line
-        if log_scale:
-            plt.plot(avg_freqs, np.log10(avg_spectral_ratio + 1), color="black", linewidth=3, label="Overall Ratio")
-        else:
-            plt.plot(avg_freqs, avg_spectral_ratio, color="black", linewidth=3, label="Overall Ratio")
+        if plot:
+            if log_scale:
+                plt.plot(avg_freqs, np.log10(avg_spectral_ratio + 1), color="black", linewidth=3, label="Overall Ratio")
+            else:
+                plt.plot(avg_freqs, avg_spectral_ratio, color="black", linewidth=3, label="Overall Ratio")
+    if plot:
+        plt.xlabel("Frequency (Hz)")
+        plt.ylabel("Amplitude Ratio (Signal/Noise)")
+        plt.title("Amplitude Ratio of Signal to Noise")
+        plt.legend()
+        plt.grid()
+        plt.xlim(0, 50)  # Adjust frequency range as needed
+        plt.ylim(bottom=0)  # Ensure no negative values
+        plt.show()
+    else:
+        return avg_freqs, avg_spectral_ratio # could also add to each indivdual trace object as well as returning average
 
-    plt.xlabel("Frequency (Hz)")
-    plt.ylabel("Amplitude Ratio (Signal/Noise)")
-    plt.title("Amplitude Ratio of Signal to Noise")
-    plt.legend()
-    plt.grid()
-    plt.xlim(0, 50)  # Adjust frequency range as needed
-    plt.ylim(bottom=0)  # Ensure no negative values
-    plt.show()
+def signal2noise(detected_st, best_trig):
+       # noise spectra
+    signal_st = detected_st.copy().trim(starttime=best_trig['time'], endtime=best_trig['time']+best_trig['duration'])
+    noise_st = detected_st.copy().trim(endtime=best_trig['time'])
+    #compute_amplitude_spectra(noise_st) 
+    compute_amplitude_ratios(signal_st, noise_st, log_scale=False, smooth_window=5) # add return values, and a plot and outfile 
 
 from libDetectionTuner import run_event_detection
 def asl_event(st, raw_st, **kwargs):
@@ -204,8 +225,11 @@ def asl_event(st, raw_st, **kwargs):
     #st.write('test.mseed', format='MSEED')
     best_params = {'algorithm': 'zdetect', 'sta': 1.989232720619933, 'lta': 29.97100574322863, 'thr_on': 1.6780449441904004, 'thr_off': 0.6254430984099986}
     if interactive:
-        st, picked_times, best_params = run_event_detection(st, n_trials=50) 
-        print(st)
+        st, best_params, all_params_df = run_event_detection(st, n_trials=50) 
+        all_params_df.to_csv(os.path.join(outdir, 'detection_trials.csv'))
+        st.write(os.path.join(outdir, 'selected_stream.mseed'), format='MSEED')
+        # noise spectra
+        signal2noise(st, best_params) # add a plot and an outfile
 
     # detect
     best_trig = detect_network_event(st, minchans=None, threshon=best_params['thr_on'], threshoff=best_params['thr_off'], \
@@ -232,12 +256,8 @@ def asl_event(st, raw_st, **kwargs):
     fig.savefig(os.path.join(outdir, 'detectedstream.png'), dpi=300, bbox_inches="tight")
 
     # noise spectra
-    signal_st = detected_st.copy().trim(starttime=best_trig['time'], endtime=best_trig['time']+best_trig['duration'])
-    noise_st = detected_st.copy().trim(endtime=best_trig['time'])
-    plot_amplitude_spectra(noise_st) 
-    plot_amplitude_ratios(signal_st, noise_st, log_scale=False, smooth_window=5)
+    signal2noise(detected_st, best_trig) # add plot and outfile ?
     
-
     # compute DSAM data with 1-s time window
     dsamObj = DSAM(stream=detected_st, sampling_interval=1.0)
     #print(f'DSAM object for asl_event: {dsamObj}')

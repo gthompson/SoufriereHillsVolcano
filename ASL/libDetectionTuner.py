@@ -8,6 +8,8 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from pprint import pprint
+import pandas as pd
+from libseisGT import detect_network_event
 
 class SeismicGUI:
     def __init__(self, master, stream):
@@ -105,7 +107,10 @@ class SeismicGUI:
         """Move dotted cursor in pick_times mode across all subplots."""
         if self.mode == "pick_times" and event.xdata:
             for cursor_line in self.cursor_lines:
-                cursor_line.set_xdata(event.xdata)
+                if not isinstance(event.xdata, list): # is not None:  # Ensure valid xdata
+                    cursor_line.set_xdata([event.xdata]) 
+                else:
+                    cursor_line.set_xdata(event.xdata)
             self.canvas.draw()
 
     def on_mouse_click(self, event):
@@ -116,13 +121,13 @@ class SeismicGUI:
                 ax.axvline(x=event.xdata, color='r', linestyle='solid', lw=2)
 
             self.picked_times.append(picked_time)
-            print(f"✅ Picked event time: {picked_time}")
+            print(f" Picked event time: {picked_time}")
 
             if len(self.picked_times) == 1:
                 self.fig.suptitle("Click to select event end time")
             elif len(self.picked_times) == 2:
-                plt.close(self.fig)  # ✅ Closes only the current figure
-                plt.close('all')  # ✅ Ensures all figures are closed                
+                plt.close(self.fig)  #  Closes only the current figure
+                plt.close('all')  #  Ensures all figures are closed                
                 self.master.quit()
 
             self.canvas.draw()
@@ -141,31 +146,48 @@ def run_monte_carlo(stream, event_start, event_end, n_trials=100):
     # delayed_sta_lta: Delayed STA/LTA algorithm
         # delayed_sta_lta(tr.data, nsta, nlta)
     best_params = None
-    best_misfit = float("inf")
+    #best_misfit = float("inf")
     min_triggers = 4
-
-    for _ in range(n_trials):
+    trials_complete = 0
+    lod = []
+    while trials_complete < n_trials:
         algorithm = random.choice(algorithms)
         sta = random.uniform(1, 5)
         lta = random.uniform(sta * 4, sta * 25)
         thr_on = random.uniform(1.5, 5)
         thr_off = random.uniform(thr_on / 10, thr_on / 2)
-        ratio = random.uniform(1, 2)
+        #ratio = random.uniform(1, 2)
+        best_trig=None
 
         print(f"Trying {algorithm} with STA={sta}, LTA={lta}, THR_ON={thr_on}, THR_OFF={thr_off}")
 
         # Run coincidence_trigger
         # coincidence_trigger(trigger_type, thr_on, thr_off, stream, thr_coincidence_sum, \
         # trace_ids=None, max_trigger_length=1000000.0, delete_long_trigger=False, trigger_off_extension=0, details=False, event_templates={}, similarity_threshold=0.7, **options)
-        if algorithm == "zdetect":
-            triggers = coincidence_trigger(algorithm, thr_on, thr_off, stream, min_triggers, sta=sta)
-        elif algorithm == "carlstatrig":
-            triggers = coincidence_trigger(algorithm, thr_on, thr_off, stream, min_triggers, sta=sta, lta=lta, ratio=1, quiet=True)
-        else:
-            triggers = coincidence_trigger(algorithm, thr_on, thr_off, stream, min_triggers, sta=sta, lta=lta)
+        try:
+            best_trig = detect_network_event(stream, minchans=None, threshon=thr_on, threshoff=thr_off, \
+                         sta=sta, lta=lta, pad=0.0, best_only=True, verbose=False, freq=None, algorithm=algorithm)
+            '''
+            if algorithm == "zdetect":
+                lta = None
+                triggers = coincidence_trigger(algorithm, thr_on, thr_off, stream, min_triggers, sta=sta)
+            elif algorithm == "carlstatrig":
+                triggers = coincidence_trigger(algorithm, thr_on, thr_off, stream, min_triggers, sta=sta, lta=lta, ratio=1, quiet=True)
+            else:
+                triggers = coincidence_trigger(algorithm, thr_on, thr_off, stream, min_triggers, sta=sta, lta=lta)'
+            '''
+        except Exception as e:
+            print(e)
+            continue
 
+        if not best_trig:   # No triggers found
+            print("No triggers found.")
+            continue
+        
+        '''
         detected_start_times = [UTCDateTime(trig["time"]) for trig in triggers]
         detected_end_times = [UTCDateTime(trig["time"]) + trig["duration"] for trig in triggers]
+
 
         if detected_start_times and detected_end_times:
             detected_start = min(detected_start_times)
@@ -183,9 +205,43 @@ def run_monte_carlo(stream, event_start, event_end, n_trials=100):
                     "thr_on": thr_on,
                     "thr_off": thr_off,
                     "misfit": misfit,
-                }
+                }'
+        '''
 
-    return best_params
+        trials_complete += 1
+        best_trig["algorithm"] = algorithm
+        best_trig["sta"] = sta
+        best_trig["lta"] = lta
+        best_trig["thr_on"] = thr_on
+        best_trig["thr_off"] = thr_off
+        best_trig['endtime'] = best_trig["time"] + best_trig["duration"]
+        best_trig['misfit'] = abs(best_trig['time'] - event_start) + abs(best_trig['endtime'] - event_end)
+        best_trig['event_start'] = event_start
+        best_trig['event_end'] = event_end
+        lod.append(best_trig)
+
+        ''' other fields of best_trig
+            {'cft_peak_wmean': 19.561900329259956,
+            'cft_peaks': [19.535644192544272,
+                        19.872432918501264,
+                        19.622171410201297,
+                        19.217352795792998],
+            'cft_std_wmean': 5.4565629691954713,
+            'cft_stds': [5.292458320417178,
+                        5.6565387957966404,
+                        5.7582248973698507,
+                        5.1190298631982163],
+            'coincidence_sum': 4.0,
+            'duration': 4.5299999713897705,
+            'stations': ['UH3', 'UH2', 'UH1', 'UH4'],
+            'time': UTCDateTime(2010, 5, 27, 16, 24, 33, 190000),
+            'trace_ids': ['BW.UH3..SHZ', 'BW.UH2..SHZ', 'BW.UH1..SHZ', 'BW.UH4..SHZ']}
+        '''
+
+    df = pd.DataFrame(lod)
+    best_params = df.loc[df['misfit'].idxmin()].to_dict()
+    #print(df)
+    return df, best_params
 
 def run_event_detection(stream, n_trials=50):
     """Runs GUI and returns selected traces, event times, and best parameters."""
@@ -199,10 +255,14 @@ def run_event_detection(stream, n_trials=50):
 
     event_start, event_end = app.picked_times
 
-    best_params = run_monte_carlo(app.selected_traces, event_start, event_end, n_trials)
+    df, best_params = run_monte_carlo(app.selected_traces, event_start, event_end, n_trials)
     out_stream = Stream(traces=app.selected_traces)
+    plt.close('all')  # Ensures all figures are closed
+    root.withdraw()  # Hide the main Tkinter window
+    root.quit()  # Quit the Tkinter mainloop
+    root.destroy()  # Forcefully close all Tk windows
 
-    return out_stream, [event_start, event_end], best_params
+    return out_stream, best_params, df
 
 if __name__ == "__main__":
     stream = read('test.mseed', format='MSEED')  # Modify to load actual data
