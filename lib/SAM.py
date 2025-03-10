@@ -516,7 +516,7 @@ class SAM:
                 tr.stats.delta = self.get_sampling_interval(df)
                 tr.stats.starttime = obspy.core.UTCDateTime(df.iloc[0]['time'])
                 tr.id = key
-                print(min(tr.data))
+                #print(min(tr.data))
                 if tr.data.size - np.count_nonzero(np.isnan(tr.data)):
                     st.append(tr)
                 

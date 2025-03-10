@@ -1064,7 +1064,7 @@ def removeInstrumentResponse(st_or_tr, preFilter = (1, 1.5, 30.0, 45.0), outputT
     '''
 
 def detect_network_event(st_in, minchans=None, threshon=3.5, threshoff=1.0, \
-                         sta=0.5, lta=5.0, pad=0.0, best_only=False, verbose=False, freq=None, algorithm='recstalta'):
+                         sta=0.5, lta=5.0, pad=0.0, best_only=False, verbose=False, freq=None, algorithm='recstalta', criterion='longest'):
     """
     Run a full network event detector/associator 
     
@@ -1108,38 +1108,46 @@ def detect_network_event(st_in, minchans=None, threshon=3.5, threshoff=1.0, \
         print('minchans=',minchans)
     #trig = coincidence_trigger(algorithm, threshon, threshoff, st, minchans, sta=sta, lta=lta, max_trigger_length=180, delete_long_trigger=True, details=True) # 0.5s, 10s
     if algorithm == "zdetect":
-        trig = coincidence_trigger(algorithm, threshon, threshoff, st, minchans, sta=sta)
+        trig = coincidence_trigger(algorithm, threshon, threshoff, st, minchans, sta=sta, details=True)
     elif algorithm == "carlstatrig":
-        trig = coincidence_trigger(algorithm, threshon, threshoff, st, minchans, sta=sta, lta=lta, ratio=1, quiet=True)
+        trig = coincidence_trigger(algorithm, threshon, threshoff, st, minchans, sta=sta, lta=lta, ratio=1, quiet=True, details=True)
     else:
-        trig = coincidence_trigger(algorithm, threshon, threshoff, st, minchans, sta=sta, lta=lta)
+        trig = coincidence_trigger(algorithm, threshon, threshoff, st, minchans, sta=sta, lta=lta, details=True)
+    if trig:
 
-    if best_only:
-        best_trig = {}
-        best_product = 0
+        if best_only:
+            best_trig = {}
+            best_product = 0
 
-        for this_trig in trig:
-            thistime = UTCDateTime(this_trig['time'])
-            if thistime > st[0].stats.starttime:
-                this_product = this_trig['coincidence_sum']*this_trig['duration']
-                if this_product > best_product:
-                    best_trig = this_trig
-                    best_product = this_product
-        return best_trig  
+            for this_trig in trig:
+                #print(this_trig)
+                thistime = UTCDateTime(this_trig['time'])
+                if thistime > st[0].stats.starttime:
+                    if criterion=='longest':
+                        this_product = this_trig['coincidence_sum']*this_trig['duration']
+                    elif criterion=='cft':
+                        this_product = sum(this_trig["cft_peaks"])
+                    else:
+                        this_product = sum(this_trig["cft_peaks"])*this_trig['duration']
+                    if this_product > best_product:
+                        best_trig = this_trig
+                        best_product = this_product
+            return best_trig  
+        else:
+            ontimes = []
+            offtimes = []
+            for this_trig in trig:
+                thistime = UTCDateTime(this_trig['time'])
+                if thistime > st[0].stats.starttime:
+                    ontimes.append(this_trig['time'])
+                    offtimes.append(this_trig['time']+this_trig['duration'])
+            return trig, ontimes, offtimes
     else:
-        ontimes = []
-        offtimes = []
-        for this_trig in trig:
-            thistime = UTCDateTime(this_trig['time'])
-            if thistime > st[0].stats.starttime:
-                ontimes.append(this_trig['time'])
-                offtimes.append(this_trig['time']+this_trig['duration'])
-        return trig, ontimes, offtimes
-    """
-    if pad>0.0:
-        for tr in st:
-            unpad_trace(tr)  
-    """      
+        if best_only:
+            return None
+        else:
+            return None, None, None
+    
     
 def add_channel_detections(st, lta=5.0, threshon=0.5, threshoff=0.0, max_duration=120):
     """ 

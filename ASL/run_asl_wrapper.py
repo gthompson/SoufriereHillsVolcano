@@ -20,7 +20,7 @@ matplotlib.use("TkAgg")
 
 
 # Now import Matplotlib
-import matplotlib.pyplot as plt
+#import matplotlib.pyplot as plt
 from obspy import read_inventory, UTCDateTime
 from pprint import pprint
 
@@ -30,8 +30,8 @@ from libseisGT import detect_network_event
 from seisan_classes import set_globals, read_seisandb_apply_custom_function_to_each_event
 #import libSeisan2Pandas as seisan
 #import libMVO 
-from SAM import DSAM
-from ASL import ASL, initial_source, make_grid
+from SAM import DSAM, DRS
+from ASL import ASL, initial_source, make_grid, dome_location
 from InventoryTools import show_response #, has_response
 from obspy import Stream
 
@@ -60,133 +60,8 @@ show_response(inv)
 
 startdate=UTCDateTime(2001,3,1,14,16,0)
 enddate=UTCDateTime(2001,3,2)
-import numpy as np
-import matplotlib.pyplot as plt
 
-def compute_amplitude_spectra(stream, plot=False):
-    if plot:
-        plt.figure(figsize=(10, 6))
-
-    for tr in stream:
-        # Get time sampling interval (dt) and number of samples (N)
-        dt = tr.stats.delta  # Time step
-        N = len(tr.data)  # Number of samples
-
-        # Compute FFT
-        fft_vals = np.fft.fft(tr.data)
-        freqs = np.fft.fftfreq(N, d=dt)  # Frequency axis
-
-        # Compute amplitude spectrum (absolute value of FFT)
-        amplitude_spectrum = np.abs(fft_vals)
-
-        # Plot only positive frequencies (since FFT is symmetric)
-        positive_freqs = freqs[:N//2]
-        positive_amplitudes = amplitude_spectrum[:N//2]
-        if plot:
-            plt.plot(positive_freqs, positive_amplitudes, label=tr.id)
-    if plot:
-        plt.xlabel("Frequency (Hz)")
-        plt.ylabel("Amplitude")
-        plt.title("Amplitude Spectrum of Seismic Signals")
-        plt.legend()
-        plt.grid()
-        plt.xlim(0, 50)  # Adjust frequency range as needed
-        plt.show()
-    else:
-        return positive_freqs, positive_amplitudes # need to add these to trace objects instead of returning them
-
-
-
-
-def compute_amplitude_ratios(signal_stream, noise_stream, log_scale=False, smooth_window=None, plot=False):
-    if plot:
-        plt.figure(figsize=(10, 6))
-
-    # Create a dictionary for noise traces for quick lookup
-    noise_dict = {tr.id: tr for tr in noise_stream}
-
-    spectral_ratios_list = []
-    freqs_list = []
-
-    for sig_tr in signal_stream:
-        trace_id = sig_tr.id
-        if trace_id not in noise_dict:
-            print(f"Skipping {trace_id}: No matching noise trace.")
-            continue
-
-        noise_tr = noise_dict[trace_id]
-
-        # Ensure both traces have the same length
-        min_len = min(len(sig_tr.data), len(noise_tr.data))
-        sig_data = sig_tr.data[:min_len]
-        noise_data = noise_tr.data[:min_len]
-
-        # Get sampling interval (dt) and number of samples (N)
-        dt = sig_tr.stats.delta
-        N = min_len  # Use the shortest available length
-
-        # Compute FFT for signal and noise
-        fft_signal = np.fft.fft(sig_data)
-        fft_noise = np.fft.fft(noise_data)
-        freqs = np.fft.fftfreq(N, d=dt)  # Frequency axis
-
-        # Compute amplitude spectrum
-        amp_signal = np.abs(fft_signal)
-        amp_noise = np.abs(fft_noise)
-
-        # Avoid division by zero by replacing zeros with a small number
-        amp_noise[amp_noise == 0] = 1e-10  
-
-        # Compute amplitude ratio
-        amplitude_ratio = amp_signal / amp_noise
-
-        # Smooth the amplitude ratio using a moving average if requested
-        if smooth_window:
-            kernel = np.ones(smooth_window) / smooth_window
-            amplitude_ratio = np.convolve(amplitude_ratio, kernel, mode="same")
-
-        # Store spectral ratios for computing the overall ratio
-        spectral_ratios_list.append(amplitude_ratio[:N//2])
-        freqs_list.append(freqs[:N//2])
-
-        # Plot only positive frequencies for individual traces
-        if plot:
-            if log_scale:
-                plt.plot(freqs[:N//2], np.log10(amplitude_ratio[:N//2] + 1), label=trace_id, alpha=0.5, linewidth=1)
-            else:
-                plt.plot(freqs[:N//2], amplitude_ratio[:N//2], label=trace_id, alpha=0.5, linewidth=1)
-
-    # Compute the overall spectral ratio by summing all individual ratios
-    if spectral_ratios_list:
-        avg_spectral_ratio = np.mean(np.array(spectral_ratios_list), axis=0)  # Compute the mean spectral ratio
-        avg_freqs = freqs_list[0]  # All traces should have the same frequency bins
-
-        # Plot the overall spectral ratio with a thicker line
-        if plot:
-            if log_scale:
-                plt.plot(avg_freqs, np.log10(avg_spectral_ratio + 1), color="black", linewidth=3, label="Overall Ratio")
-            else:
-                plt.plot(avg_freqs, avg_spectral_ratio, color="black", linewidth=3, label="Overall Ratio")
-    if plot:
-        plt.xlabel("Frequency (Hz)")
-        plt.ylabel("Amplitude Ratio (Signal/Noise)")
-        plt.title("Amplitude Ratio of Signal to Noise")
-        plt.legend()
-        plt.grid()
-        plt.xlim(0, 50)  # Adjust frequency range as needed
-        plt.ylim(bottom=0)  # Ensure no negative values
-        plt.show()
-    else:
-        return avg_freqs, avg_spectral_ratio # could also add to each indivdual trace object as well as returning average
-
-def signal2noise(detected_st, best_trig):
-       # noise spectra
-    signal_st = detected_st.copy().trim(starttime=best_trig['time'], endtime=best_trig['time']+best_trig['duration'])
-    noise_st = detected_st.copy().trim(endtime=best_trig['time'])
-    #compute_amplitude_spectra(noise_st) 
-    compute_amplitude_ratios(signal_st, noise_st, log_scale=False, smooth_window=5) # add return values, and a plot and outfile 
-
-from libDetectionTuner import run_event_detection
+from libDetectionTuner import run_event_detection, signal2noise, plot_detected_stream
 def asl_event(st, raw_st, **kwargs):
     print(f"Received kwargs in asl_event: {kwargs}")
     if len(st) > 0 and isinstance(st, Stream):
@@ -198,24 +73,36 @@ def asl_event(st, raw_st, **kwargs):
     # Set default values for parameters (if not provided in **kwargs)
     Q = kwargs.get("Q", 23)  
     surfaceWaveSpeed_kms = kwargs.get("surfaceWaveSpeed_kms", 2.5)
-    peakf = kwargs.get("peakf", 10.0)
+    peakf = kwargs.get("peakf", 8.0)
     metric = kwargs.get("metric", 'VT')
     window_seconds = kwargs.get("window_seconds", 5)
     min_stations = kwargs.get("min_stations", 5)
     outdir =  os.path.join(kwargs.get("outdir", '.'), st[0].stats.starttime.strftime("%Y%m%dT%H%M%S")) 
     interactive = kwargs.get("interactive", False)
+    freq = [1.0, 15.0]
+    compute_DRS_at_fixed_source = kwargs.get("compute_DRS_at_fixed_source", True)
+
+    if not isinstance(Q, list):
+        Q = [Q]
+    if not isinstance(peakf, list):        
+        peakf = [peakf]
+    if not isinstance(surfaceWaveSpeed_kms, list):
+        surfaceWaveSpeed_kms = [surfaceWaveSpeed_kms]
+    if not isinstance(metric, list):
+        metric = [metric]
     os.makedirs(outdir, exist_ok=True)
 
     print(f"Using Q={Q}, surfaceWaveSpeed_kms={surfaceWaveSpeed_kms}, peakf={peakf}")    
     if raw_st and isinstance(raw_st, Stream):
         rawstreampng = os.path.join(outdir, 'rawstream.png')
         raw_st.plot(equal_scale=False, outfile=rawstreampng);
-
+    
     # plot pre-processed stream
     print(f'Stream for asl_event: {st}')
     if st and isinstance(st, Stream):
         streampng = os.path.join(outdir, 'stream.png')
         st.plot(equal_scale=False, outfile=streampng);
+        st.write(os.path.join(outdir, 'stream.mseed'), format='MSEED')
     
     # plot amplitude spectra
     #plot_amplitude_spectra(st)    
@@ -225,40 +112,43 @@ def asl_event(st, raw_st, **kwargs):
     #st.write('test.mseed', format='MSEED')
     best_params = {'algorithm': 'zdetect', 'sta': 1.989232720619933, 'lta': 29.97100574322863, 'thr_on': 1.6780449441904004, 'thr_off': 0.6254430984099986}
     if interactive:
-        st, best_params, all_params_df = run_event_detection(st, n_trials=50) 
+        st, best_params, all_params_df = run_event_detection(st, n_trials=100) 
+        print(f'best_params: {best_params}')
+        all_params_df = all_params_df.sort_values(by='misfit', ascending=True).head(20)
+        #all_params_df = all_params_df.nsmallest(20, 'misfit') # just save smallest values
         all_params_df.to_csv(os.path.join(outdir, 'detection_trials.csv'))
         st.write(os.path.join(outdir, 'selected_stream.mseed'), format='MSEED')
         # noise spectra
-        signal2noise(st, best_params) # add a plot and an outfile
+        snr, fmetrics_dict = signal2noise(st, best_params)
+        print(f'tuner signal_to_noise {snr}')
+        if fmetrics_dict:
+            freq = [fmetrics_dict['f_low'], fmetrics_dict['f_high']]
+            print(f'frequency metrics: {fmetrics_dict}')
+            peakf = [fmetrics_dict['f_peak']]
+        else:
+            print('No frequency metrics returned from tuner')
 
     # detect
     best_trig = detect_network_event(st, minchans=None, threshon=best_params['thr_on'], threshoff=best_params['thr_off'], \
-                                     sta=best_params['sta'], lta=best_params['lta'], pad=0.0, best_only=True, freq=[2.0, 15.0], \
-                                        algorithm=best_params['algorithm'])
+                                     sta=best_params['sta'], lta=best_params['lta'], pad=0.0, best_only=True, freq=freq, \
+                                        algorithm=best_params['algorithm'], criterion='cft')
+    
     if not best_trig:
         return
-    pprint(best_trig)
     if len(best_trig['trace_ids'])<min_stations:
         return
+    print(f'best_trig: {best_trig}')
     
     # subset by detected stations
     detected_st = Stream(traces=[tr for tr in st if tr.id in best_trig['trace_ids']])
-
-    # plot detected stream
-    trig_time = best_trig['time'].matplotlib_date
-    trig_end = (best_trig['time'] + best_trig['duration']).matplotlib_date
-    fig = detected_st.plot(show=False)  # show=False prevents it from auto-displaying
-    for ax in fig.axes:  # Stream.plot() returns multiple axes (one per trace)
-        ax.axvline(trig_time, color='r', linestyle='--', label="Trigger Start")
-        ax.axvline(trig_end, color='b', linestyle='--', label="Trigger End")
-        ax.legend()
-    #plt.savefig() # Display the plot    
-    fig.savefig(os.path.join(outdir, 'detectedstream.png'), dpi=300, bbox_inches="tight")
+    plot_detected_stream(detected_st, best_trig, outfile = os.path.join(outdir, 'detected_stream.png'))
 
     # noise spectra
-    signal2noise(detected_st, best_trig) # add plot and outfile ?
-    
+    snr, fmetrics_dict = signal2noise(detected_st, best_trig, outfile=os.path.join(outdir, 'signal2noise.png')) # add plot and outfile ?
+    print(f'detector signal_to_noise {snr}')
+
     # compute DSAM data with 1-s time window
+    detected_st.trim(starttime=best_trig['time']-1, endtime=best_trig['time']+best_trig['duration']+1)
     dsamObj = DSAM(stream=detected_st, sampling_interval=1.0)
     #print(f'DSAM object for asl_event: {dsamObj}')
 
@@ -266,46 +156,65 @@ def asl_event(st, raw_st, **kwargs):
     if dsamObj and isinstance(dsamObj, DSAM):
         dsampng = os.path.join(outdir, 'DSAM.png')
         dsamObj.plot(metrics=metric, equal_scale=True, outfile=dsampng)
+        dsamObj.write(outdir, ext='csv')
 
-    '''
-    # compute reduced displacement from DSAM data - assumes source at volcano
-    DRSobj = dsamObj.compute_reduced_displacement(inv, source, surfaceWaves=True, Q=Q, wavespeed_kms=surfaceWaveSpeed_kms, peakf=peakf)
 
-    # plot DRS data - we assume the frequency band of interest for PDCs is same as the VT band we use for band ratio calculations. I think this is 4-18 Hz. But we could give different banks to the DSAM calculation above
-    DRSmaxrms = DRSobj.max(metric=metric)
-    print(f'Maximum DRS assuming fixed source is: {DRSmaxrms}')
+    # loop over Q, peakf, surfaceWaveSpeed_kms, metric
+    print(f'Computing ASL for Q={Q}, peakf={peakf}, surfaceWaveSpeed_kms={surfaceWaveSpeed_kms}, metric={metric}')
 
-    # plot DRS data
-    if DRSobj and isinstance(DRSobj, DRS):
-        drspng = os.path.join(outdir, 'DRS.png')
-        DRSobj.plot(metrics=metric, equal_scale=True, outfile=drspng)
-    '''
+    # make grid object
+    source = initial_source(lat=dome_location['lat'], lon=dome_location['lon'])
+    gridobj = make_grid(center_lat=source['lat'], center_lon=source['lon'], node_spacing_m = 100, grid_size_lat_m = 10000, grid_size_lon_m = 8000)
 
-    # same grid as before
-    source = initial_source()
-    gridobj = make_grid()
+    for this_Q in Q:
+        for this_peakf in peakf:
+            for this_surfaceWaveSpeed_kms in surfaceWaveSpeed_kms:
+                for this_metric in metric:
+                    print(f'Computing ASL for Q={this_Q}, peakf={this_peakf}, surfaceWaveSpeed_kms={this_surfaceWaveSpeed_kms}, metric={this_metric}')
 
-    # Create an ASL object with DSAM (displacement amplitude) data, inventory data, and a grid object. The inventory is used for station locations to compute distances
-    aslobj = ASL(dsamObj, 'VT', inv, gridobj, window_seconds)
+                    if compute_DRS_at_fixed_source:
+                        # compute reduced displacement from DSAM data - assumes source at volcano
+                        DRSobj = dsamObj.compute_reduced_displacement(inv, source, surfaceWaves=True, Q=this_Q, wavespeed_kms=this_surfaceWaveSpeed_kms, peakf=this_peakf)                
+                        # plot DRS data - we assume the frequency band of interest for PDCs is same as the VT band we use for band ratio calculations. I think this is 4-18 Hz. But we could give different banks to the DSAM calculation above
+                        DRSmaxrms = DRSobj.max(metric=this_metric)
+                        print(f'Maximum DRS assuming fixed source is: {DRSmaxrms}')
 
-    # Compute grid distances
-    aslobj.compute_grid_distances()
+                        # plot DRS data
+                        if DRSobj and isinstance(DRSobj, DRS):
+                            drspng = os.path.join(outdir, f'dome_DRS_Q{this_Q}_f{this_peakf}_v{this_surfaceWaveSpeed_kms}_{this_metric}.png')
+                            DRSobj.plot(metrics=this_metric, equal_scale=True, outfile=drspng)
+                    
 
-    # Compute amplitude corrections
-    aslobj.compute_amplitude_corrections(surfaceWaves=True, wavespeed_kms=surfaceWaveSpeed_kms, Q=Q, fix_peakf = peakf)
 
-    # Estimate source location for each time window of window_seconds
-    source_pf = aslobj.fast_locate()
-    #source_pf = aslobj.locate()
-    #print(source_pf)
+                    # Create an ASL object with DSAM (displacement amplitude) data, inventory data, and a grid object. The inventory is used for station locations to compute distances
+                    aslobj = ASL(dsamObj, this_metric, inv, gridobj, window_seconds)
 
-    # Plot the source location estimates
-    # originally zoom_level=1, scale=0.2, number=10, equal_size=True
-    aslobj.plot(source_pf, zoom_level=0, threshold_DR=0.03, \
-                scale=0.2, join=True, number=0, \
-                equal_size=False, add_labels=True, outfile=os.path.join(outdir, 'ASL.png')) 
+                    # Compute grid distances
+                    aslobj.compute_grid_distances()
+
+                    # Compute amplitude corrections
+                    aslobj.compute_amplitude_corrections(surfaceWaves=True, wavespeed_kms=this_surfaceWaveSpeed_kms, Q=this_Q, fix_peakf = this_peakf)
+
+                    # Estimate source location for each time window of window_seconds
+                    aslobj.fast_locate()
+
+                    # Print the Event
+                    aslobj.print_event()
+
+                    aslobj.save_event(outfile=os.path.join(outdir, f'ASL_Q{this_Q}_f{this_peakf}_v{this_surfaceWaveSpeed_kms}_{this_metric}.qml'))
+
+
+                    # Plot the source location estimates
+                    # originally zoom_level=1, scale=0.2, number=10, equal_size=True
+                    aslobj.plot(zoom_level=0, threshold_DR=0.03, \
+                                scale=0.2, join=True, number=0, \
+                                equal_size=False, add_labels=True, stations=[tr.stats.station for tr in detected_st], \
+                                    outfile=os.path.join(outdir, f'ASL_Q{this_Q}_f{this_peakf}_v{this_surfaceWaveSpeed_kms}_{this_metric}.png')) #, show=True)
+
+
+
                 
-
+outdir = os.path.join(os.path.dirname(SEISAN_DATA), 'ASL_DB')
 read_seisandb_apply_custom_function_to_each_event(startdate, enddate, 
                                                 SEISAN_DATA=SEISAN_DATA, 
                                                 DB='MVOE_', 
@@ -321,7 +230,7 @@ read_seisandb_apply_custom_function_to_each_event(startdate, enddate,
                                                 freq=[0.5, 30.0],
                                                 vertical_only=True, 
                                                 # arguments for asl_event follow
-                                                outdir='.',
+                                                outdir=outdir,
                                                 Q=23, 
                                                 surfaceWaveSpeed_kms = 1.5,
                                                 peakf = 8.0, 

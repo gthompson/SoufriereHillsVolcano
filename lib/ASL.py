@@ -10,6 +10,8 @@ from SAM import DSAM
 import pickle
 from InventoryTools import inventory2traceid as inventory2seedids
 dome_location = {'lat':16.71111, 'lon':-62.17722}
+from obspy.core.event import Event, Origin, Amplitude, Catalog, ResourceIdentifier, QuantityError
+from pprint import pprint
 
 ''' # duplicate of inventory2traceid
 def inventory2seedids(inv, chancode='', force_location_code='*'):
@@ -30,7 +32,8 @@ def inventory2seedids(inv, chancode='', force_location_code='*'):
     return seed_ids
 '''
 
-def montserrat_topo_map(show=False, zoom_level=0, inv=None, add_labels=False, centerlon=-62.177, centerlat=16.711, contour_interval=100, topo_color=True, resolution='03s', DEM_DIR=None):
+def montserrat_topo_map(show=False, zoom_level=0, inv=None, add_labels=False, centerlon=-62.177, centerlat=16.711, contour_interval=100, \
+                        topo_color=True, resolution='03s', DEM_DIR=None, stations=[]):
 
     #define etopo data file
     # ergrid = 'path_to_local_data_file'
@@ -47,8 +50,6 @@ def montserrat_topo_map(show=False, zoom_level=0, inv=None, add_labels=False, ce
     diffdeglon = diffdeglat/np.cos(np.deg2rad(centerlat))
     minlon, maxlon = centerlon-diffdeglon, centerlon+diffdeglon  #-62.25, -62.13
     minlat, maxlat = centerlat-diffdeglat, centerlat+diffdeglat  # 16.66, 16.83
-    print(minlon, maxlon, minlat, maxlat)
-
 
     if pklfile:
         if os.path.exists(pklfile):
@@ -118,7 +119,9 @@ def montserrat_topo_map(show=False, zoom_level=0, inv=None, add_labels=False, ce
     
     if inv:
         seed_ids = inventory2seedids(inv, force_location_code='')
-        #print(seed_ids)
+
+        if not stations:
+            stations = [seed_id.split('.')[1] for seed_id in seed_ids]
         stalat = [inv.get_coordinates(seed_id)['latitude'] for seed_id in seed_ids]
         stalon = [inv.get_coordinates(seed_id)['longitude'] for seed_id in seed_ids]
         fig.plot(x=stalon, y=stalat, style="s0.4c", fill="dodgerblue4", pen='2p,blue')  
@@ -127,11 +130,16 @@ def montserrat_topo_map(show=False, zoom_level=0, inv=None, add_labels=False, ce
             #print('Adding station labels')
             for thislat, thislon, this_id in zip(stalat, stalon, seed_ids):
                 net, sta, loc, chan = this_id.split('.')
-                #print(thislat, thislon, net, sta, loc, chan)
-                fig.text(x=thislon, y=thislat, text=sta, textfiles=None, \
-                        font="blue",
-                        justify="ML",
-                        offset="0.2c/0c",)
+                if sta in stations:
+                    fig.text(x=thislon, y=thislat, text=sta, textfiles=None, \
+                            font="green",
+                            justify="ML",
+                            offset="0.2c/0c",)
+                else:
+                    fig.text(x=thislon, y=thislat, text=sta, textfiles=None, \
+                            font="red",
+                            justify="ML",
+                            offset="0.2c/0c",)
     
     if show:
         fig.show();
@@ -325,6 +333,15 @@ class ASL:
         self.station_coordinates = {}
         self.amplitude_corrections = {}
         self.window_seconds = window_seconds
+        self.amplitude_corrections = None
+        self.surfaceWaves = False
+        self.wavespeed_kms = None
+        self.wavelength_km = None
+        self.Q = None
+        self.peakf = None       
+        self.located = False
+        self.source = None
+        self.event = None
         
     def setup(self, surfaceWaves=False):  
         self.compute_grid_distances()
@@ -390,6 +407,11 @@ class ASL:
             corrections[seed_id] = gsc * isc
 
         self.amplitude_corrections = corrections
+        self.surfaceWaves = surfaceWaves
+        self.wavespeed_kms = wavespeed_kms
+        self.wavelength_km = wavelength_km
+        self.Q = Q
+        self.peakf = peakf
 
     def metric2stream(self):
         st = self.samobject.to_stream(metric=self.metric)
@@ -406,14 +428,8 @@ class ASL:
 
         seed_ids = [tr.id for tr in st]
         lendata = len(st[0].data)
-        #print(seed_ids[0])
-        #print(self.amplitude_corrections)
+
         corrections = self.amplitude_corrections[seed_ids[0]]
-        #print(len(corrections))
-        #print(self.amplitude_corrections[seed_ids[0]])
-        locations = []
-        best_corrections = {}
-        source_amplitudes = []
         
         t = st[0].times('utcdatetime')
         source_DR = np.empty(len(t), dtype=float)
@@ -445,6 +461,9 @@ class ASL:
             
             
         source = {'t':t, 'lat':source_lat, 'lon':source_lon, 'DR':source_DR*1e7, 'misfit':source_misfit}
+        self.source = source
+        self.source_to_obspyevent()
+        self.located = True
         return source
         # Here is where i would add loop over shrinking grid
 
@@ -478,10 +497,13 @@ class ASL:
             source_misfit[i] = lowest_misfit
             
         source = {'t':t, 'lat':source_lat, 'lon':source_lon, 'DR':source_DR*1e7, 'misfit':source_misfit}
+        self.source = source
+        self.source_to_obspyevent()
+        self.located = True       
         return source
 
-    def plot(self, source=None, zoom_level=1, threshold_DR=0, scale=1, join=False, number=0, add_labels=False, equal_size=False, outfile=None):
-
+    def plot(self, zoom_level=1, threshold_DR=0, scale=1, join=False, number=0, add_labels=False, equal_size=False, outfile=None, stations=None):
+        source = self.source
         if source:
                 
             # timeseries of DR vs threshold_amp
@@ -512,7 +534,7 @@ class ASL:
      
                     
                 maxi = np.argmax(DR)
-                fig = montserrat_topo_map(zoom_level=zoom_level, inv=self.inventory, centerlat=y[maxi], centerlon=x[maxi], add_labels=add_labels, topo_color=False)
+                fig = montserrat_topo_map(zoom_level=zoom_level, inv=self.inventory, centerlat=y[maxi], centerlon=x[maxi], add_labels=add_labels, topo_color=False, stations=stations)
                 
                 if number:
                     if number<len(x):
@@ -586,3 +608,70 @@ class ASL:
             
         else: # no location data      
             fig = montserrat_topo_map(zoom_level=zoom_level, inv=self.inventory, show=True, add_labels=add_labels)
+
+
+
+    def source_to_obspyevent(self, event_id=None):   
+        """
+        Converts a dictionary of moving source locations into an ObsPy Event and writes to a QuakeML file.
+        
+        Parameters:
+            source (dict): Dictionary containing source attributes:
+                - 't' (list of timestamps in UTCDateTime or convertible format)
+                - 'lat' (list of latitudes)
+                - 'lon' (list of longitudes)
+                - 'DR' (list of amplitudes, scaled seismic amplitude parameter)
+                - 'misfit' (list of misfit values for source location)
+            event_id (str): Event identifier.
+            
+        Returns:
+            None (writes a QuakeML file)
+        """
+        source = self.source
+
+        # Create an event object
+        event = Event()
+        if not event_id:
+            event_id = source['t'][0].strftime("%Y%m%d%H%M%S")
+        event.resource_id = ResourceIdentifier(f"smi:example.org/event/{event_id}")
+        event.event_type = "landslide"  # Could also be "other"
+
+        # Iterate through each source location
+        for i, (t, lat, lon, DR, misfit) in enumerate(zip(source['t'], source['lat'], source['lon'], source['DR'], source['misfit'])):
+            origin = Origin()
+            origin.resource_id = ResourceIdentifier(f"smi:example.org/origin/{event_id}_{i:03d}")
+            origin.time = obspy.UTCDateTime(t) if not isinstance(t, obspy.UTCDateTime) else t
+            origin.latitude = lat
+            origin.longitude = lon
+            origin.depth = 0  # Default depth, adjust if needed
+
+            # Store misfit as a comment (not a standard QuakeML field)
+            origin.time_errors = QuantityError(uncertainty=misfit)
+
+            event.origins.append(origin)
+
+            # Create Amplitude object for DR (scaled seismic amplitude)
+            amplitude = Amplitude()
+            amplitude.resource_id = ResourceIdentifier(f"smi:example.org/amplitude/{event_id}_{i:03d}")
+            amplitude.generic_amplitude = DR  # Store DR value
+            amplitude.unit = "other"  # Adjust units as needed, here cm^2 cannot be stored as QuakeML only allows Enum(["m", "s", "m/s", "m/(s*s)", "m*s", "dimensionless", "other"])
+            amplitude.time_window = None  # No predefined time window
+            amplitude.pick_id = origin.resource_id  # Link to the origin
+
+            event.amplitudes.append(amplitude)
+        self.event = event
+
+    def save_event(self, outfile=None):
+        """            outfile (str): Output QuakeML filename.  """
+        if self.located and outfile:
+            # Create a Catalog and write to QuakeML
+            catalog = Catalog(events=[self.event])
+            catalog.write(outfile, format="QUAKEML")
+
+            print(f"QuakeML file created: {outfile}")
+
+    def print_event(self):
+        if self.located:
+            pprint(self.event)
+
+        
