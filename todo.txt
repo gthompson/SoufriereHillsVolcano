@@ -1,0 +1,44 @@
+Montserrat to do:
+
+ASL:
+- compare statistical event detection (which does not get detection on/off times) versus network detection (which does). could be helpful for pre-filtering events to find largest ones, with most channels
+- re-create ability to locate PDCs
+- look at ways to create lahar events from scanning the continuous data, e.g. using Jeff Johnson parameters
+
+Mastering:
+- map out all trace_ids from waveform files and 
+    sfiles and pha files so have a full translation table of forward and reverse mappings
+    (see: look_back_at_monty_trace_id_mappings.py)
+- create a wfdisc table dataframe from the Seisan db (does this suggest convert everything to Seisan first?)
+- some of Lars' changes might not be good as they could have come from BGS rather than improved MVO dataset
+- merge ASN and DSN
+    - first Seisan events into single ObsPy Catalog, plus QuakeML, and new Seisan db
+    - add Antelope db capability too
+
+Processing like Yuly (1Hz highpass filter, detrend, detect, band-ratio plots by event type):
+- event detection within WAV files (& check SDS archive for continuous data as better for retriggering)
+- compute band ratios & similar stats
+    - incorporate some stats from machine learning too
+    - look at how I extended Catalog object in vsmtools for MESS2024
+
+Report:
+- find biggest events
+
+MVO operations:
+- simulate picking queue
+- re-create old-school event rate & event magnitude plots
+- re-create MVO energy magnitude system
+- replicate eev and mulplt
+- recreate MVO internal website and later figure out someway to replay data through it, including alarm systems
+- weekly report and QC functions to find biggest events
+
+Sausage plot:
+- re-engineer sausage plot to apply to Montserrat catalog
+
+Machine learning:
+- recreate Seisan to pandas workflow - but maybe go from Seisan to ObsPy catalog first
+- maybe override ObsPy Catalog to add other properties to Events?
+
+Start drafting the presentation, and the paper
+
+
