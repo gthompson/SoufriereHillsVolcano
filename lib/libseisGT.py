@@ -553,11 +553,9 @@ In terms of order of application:
 
 """
 
-
-
 def process_trace(tr, bool_despike=True, bool_clean=True, inv=None, quality_threshold=0.0, taperFraction=0.05, \
                   filterType="bandpass", freq=[0.5, 30.0], corners=6, zerophase=False, outputType='VEL', \
-                    miniseed_qc=True, verbose=False):
+                    miniseed_qc=True, verbose=False, max_dropout=0.0):
     if verbose:
         print(f'Processing {tr}')
     if not 'history' in tr.stats:
@@ -571,7 +569,7 @@ def process_trace(tr, bool_despike=True, bool_clean=True, inv=None, quality_thre
             print('qcTrace failed on %s for raw trace' % tr.id)
             tr.stats['quality_factor'] = -1
         else:        
-            tr.stats["quality_factor"] = trace_quality_factor(tr) #0 = blank trace, 1 = has some 0s and -1s, 3 = all looks good
+            tr.stats["quality_factor"] = trace_quality_factor(tr, max_dropout=max_dropout) #0 = blank trace, 1 = has some 0s and -1s, 3 = all looks good
             tr.stats.quality_factor -= tr.stats.metrics['num_gaps']
             tr.stats.quality_factor -= tr.stats.metrics['num_overlaps']
             tr.stats.quality_factor *= tr.stats.metrics['percent_availability']/100.0
@@ -617,21 +615,8 @@ def process_trace(tr, bool_despike=True, bool_clean=True, inv=None, quality_thre
 
 def check_for_spikes(tr):
     if not 'metrics' in tr.stats:
-        if not 'history' in tr.stats:
-            tr.stats['history'] = list()    
-        
-        """ RAW DATA QC METRICS """
-        try:
-            qcTrace(tr)
-        except:
-            print('qcTrace failed on %s for raw trace' % tr.id)
-            tr.stats['quality_factor'] = -1
-        else:        
-            tr.stats["quality_factor"] = trace_quality_factor(tr) #0 = blank trace, 1 = has some 0s and -1s, 3 = all looks good
-            tr.stats.quality_factor -= tr.stats.metrics['num_gaps']
-            tr.stats.quality_factor -= tr.stats.metrics['num_overlaps']
-            tr.stats.quality_factor *= tr.stats.metrics['percent_availability']/100.0
-            tr.stats.metrics["twin"] = tr.stats.npts /  tr.stats.sampling_rate # before or after detrending  
+        return
+
     m = tr.stats.metrics
     peak2peak = m['sample_max']-m['sample_min']
     positive_spike_metric = (m['sample_upper_quartile']-m['sample_min'])/peak2peak
@@ -694,7 +679,7 @@ def _FindMaxLength(lst):
     maxLength = max(map(len, lst))      
     return maxList, maxLength  
 
-def trace_quality_factor(tr, min_sampling_rate=19.99):
+def trace_quality_factor(tr, min_sampling_rate=19.99, max_dropout=0.0):
     # trace_quality_factor(tr)
     # a good trace has quality factor 3, one with 0s and -1s has 1, bad trace has 0
     quality_factor = 1.0
@@ -726,10 +711,11 @@ def trace_quality_factor(tr, min_sampling_rate=19.99):
         is_bad_trace = True
 
     # check for sequences of 0 or 1
-    trace_good_flag = _check0andMinus1(tr.data)
-    if not trace_good_flag:
-        add_to_trace_history(tr, 'sequences of 0 or -1 found')
-        is_bad_trace = True
+    if max_dropout == 0.0:
+        trace_good_flag = _check0andMinus1(tr.data)
+        if not trace_good_flag:
+            add_to_trace_history(tr, 'sequences of 0 or -1 found')
+            is_bad_trace = True
     
     # replacement for check0andMinus1
     seq = tr.data
@@ -737,8 +723,10 @@ def trace_quality_factor(tr, min_sampling_rate=19.99):
     try:
         maxList, maxLength = _FindMaxLength(islands)
         add_to_trace_history(tr, 'longest flat sequence found: %d samples' % maxLength)
-        if maxLength >= tr.stats.sampling_rate:
+        if maxLength >= tr.stats.sampling_rate * max_dropout:
             is_bad_trace = True
+        else:
+            fill_all_gaps(tr)
     except:
         is_bad_trace = True
         
@@ -799,9 +787,93 @@ def _check0andMinus1(liste):
     else:
         return True  
 
+#######################################################################
+###                        Gap filling tools                        ###
+#######################################################################
 
 
-      
+def fill_all_gaps(trace, verbose=False):
+    """
+    Finds and fills all gaps in a seismic trace using the best method for each case.
+    
+    Parameters:
+    trace (obspy.Trace): The seismic trace to process.
+    """
+    if trace.stats.station == 'MBSS':
+        verbose = True
+        trace.plot(outfile='MBSS_before_gap_filling.png')
+    if verbose:
+        print(f'filling gaps for {trace}')
+    stream = Stream(traces=[trace])  # Wrap the trace in a stream
+    gaps = stream.get_gaps()  # Get detected gaps
+
+    for net, sta, loc, chan, t1, t2, delta, samples in gaps:
+        gap_start = UTCDateTime(t1)
+        gap_end = UTCDateTime(t2)
+
+        # Select appropriate gap-filling method
+        if samples <= 5:  # Tiny gaps (few samples) → Linear interpolation
+            if verbose:
+                print(f'gap start={gap_start}, end={gap_end}, linear interpolation')
+            linear_interpolation(trace, gap_start, gap_end)
+        elif samples <= trace.stats.sampling_rate:  # Short gaps (≤ 1 sec) → Repeat data
+            if verbose:
+                print(f'gap start={gap_start}, end={gap_end}, repeating data')            
+            repeat_previous_data(trace, gap_start, gap_end)
+        else:  # Longer gaps → Fill with spectrally-matched noise
+            if verbose:
+                print(f'gap start={gap_start}, end={gap_end}, adding spectral noise')            
+            fill_gap_with_filtered_noise(trace, gap_start, gap_end)
+    if trace.stats.station == 'MBSS':
+        trace.plot(outfile='MBSS_after_gap_filling.png')
+def repeat_previous_data(trace, gap_start, gap_end):
+    """
+    Fills gaps by repeating the last valid segment before the gap.
+    """
+    sample_rate = trace.stats.sampling_rate
+    num_samples = int((gap_end - gap_start) * sample_rate)
+
+    # Get the last valid segment before the gap
+    fill_data = trace.data[-num_samples:]  # Last 'num_samples' of valid data
+    trace.data = np.concatenate((trace.data, fill_data))
+
+def linear_interpolation(trace, gap_start, gap_end):
+    """
+    Fills gaps in the seismic trace using linear interpolation.
+    """
+    sample_rate = trace.stats.sampling_rate
+    num_samples = int((gap_end - gap_start) * sample_rate)
+    gap_idx = np.arange(num_samples)
+
+    # Get neighboring valid samples
+    prev_value = trace.data[-num_samples]  # Last valid value before the gap
+    next_value = trace.data[num_samples]  # First valid value after the gap
+
+    # Linear interpolation
+    interp_values = np.linspace(prev_value, next_value, num_samples)
+    trace.data[-num_samples:] = interp_values  # Replace gap with interpolated values
+
+def fill_gap_with_filtered_noise(trace, gap_start, gap_end):
+    """
+    Fills a gap with noise that matches the spectral characteristics of the original signal
+    using ObsPy's built-in filtering.
+    """
+    sample_rate = trace.stats.sampling_rate
+    num_samples = int((gap_end - gap_start) * sample_rate)
+
+    # Get last valid segment before the gap
+    prev_segment = trace.data[-num_samples:]
+
+    # Generate white noise
+    noise = np.random.normal(scale=np.std(prev_segment), size=num_samples)
+
+    # Convert noise to an ObsPy trace and apply the same filtering as the original trace
+    noise_trace = Trace(data=noise, header=trace.stats)
+    noise_trace.filter("bandpass", freqmin=0.01, freqmax=0.5, corners=4, zerophase=True)
+
+    # Append the filtered noise to the trace
+    trace.data = np.concatenate((trace.data, noise_trace.data))
+
     
 #######################################################################
 ##                Stream tools                                       ##

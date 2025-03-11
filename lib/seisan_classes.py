@@ -1006,7 +1006,7 @@ def read_seisandb_apply_custom_function_to_each_event(startdate, enddate, \
     SEISAN_DATA='/data/SEISAN_DB', DB='MVOE_', inv=None, \
     post_process_function=None, verbose=False, bool_clean=True, \
         plot=False, valid_subclasses='', quality_threshold=1.0, \
-            outputType=None, freq=[0.5, 30.0], seismic_only=False, vertical_only=False, **kwargs):
+            outputType=None, freq=[0.5, 30.0], seismic_only=False, vertical_only=False, max_dropout=None, **kwargs):
     if vertical_only or outputType:
         seismic_only = True
 
@@ -1069,7 +1069,8 @@ def read_seisandb_apply_custom_function_to_each_event(startdate, enddate, \
                                     corners=2, \
                                     zerophase=False, \
                                     outputType=outputType, \
-                                    miniseed_qc=True):
+                                    miniseed_qc=True,
+                                    max_dropout=max_dropout):
                                 pass
                             else:
                                 st.remove(tr)

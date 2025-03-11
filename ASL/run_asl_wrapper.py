@@ -1,41 +1,21 @@
 import os
 import glob
 import numpy as np
-import matplotlib
 import sys
-'''
-# Use 'MacOSX' backend if on macOS
-if sys.platform == "darwin":
-    #matplotlib.use("MacOSX")  #  Works best for macOS
-    matplotlib.use("Qt5Agg")
-
-# If 'MacOSX' still crashes, use 'Qt5Agg'
-elif sys.platform.startswith("linux"):
-    matplotlib.use("Qt5Agg")  #  Linux safe choice  
-import os
-'''
 os.environ["MPLBACKEND"] = "TkAgg"
 import matplotlib
 matplotlib.use("TkAgg")
-
-
-# Now import Matplotlib
-#import matplotlib.pyplot as plt
-from obspy import read_inventory, UTCDateTime
-from pprint import pprint
-
-localLibPath = os.path.join('..', 'lib')
+from obspy import UTCDateTime, Stream
+#from pprint import pprint
+script_dir = os.path.dirname(os.path.abspath(__file__))
+localLibPath = os.path.join(os.path.dirname(script_dir), 'lib')
 sys.path.append(localLibPath)
 from libseisGT import detect_network_event
 from seisan_classes import set_globals, read_seisandb_apply_custom_function_to_each_event
-#import libSeisan2Pandas as seisan
-#import libMVO 
 from SAM import DSAM, DRS
 from ASL import ASL, initial_source, make_grid, dome_location
-from InventoryTools import show_response #, has_response
-from obspy import Stream
+from libDetectionTuner import run_event_detection, signal2noise, plot_detected_stream
 
-#SDS_DIR = '/data/SDS' #'/Volumes/NTFS_2TB_EXT/SDS'
 HOME = os.path.expanduser('~')
 if sys.platform == "darwin":
     print("Running on macOS")
@@ -46,22 +26,12 @@ if sys.platform == "darwin":
 elif sys.platform.startswith("linux"):
     print("Running on Linux")
     SEISAN_DATA = '/data/SEISAN_DB'
-#DATA_DIR = os.path.join(HOME, 'Dropbox/BRIEFCASE/MESS2024/skience2024_GTplus/02 Volcano Monitoring/data')
-#SAM_DIR = os.path.join(DATA_DIR,'continuous','SAM')
-#SAM_DIR = '/data/SAM' #os.path.join(DATA_DIR,'continuous','SAM')
-#DEM_DIR = os.path.join(DATA_DIR,'DEMs')
-#RESPONSE_DIR = os.path.join(DATA_DIR,'responses')
-#SEISAN_DATA = os.path.join( '/data', 'SEISAN_DB')
-#DB = 'MVOE_'
 
 SEISAN_DATA, DB, station_locationsDF, inv = set_globals(SEISAN_DATA=SEISAN_DATA)
-print(inv)
-show_response(inv)
 
 startdate=UTCDateTime(2001,3,1,14,16,0)
 enddate=UTCDateTime(2001,3,2)
 
-from libDetectionTuner import run_event_detection, signal2noise, plot_detected_stream
 def asl_event(st, raw_st, **kwargs):
     print(f"Received kwargs in asl_event: {kwargs}")
     if len(st) > 0 and isinstance(st, Stream):
@@ -103,16 +73,10 @@ def asl_event(st, raw_st, **kwargs):
         streampng = os.path.join(outdir, 'stream.png')
         st.plot(equal_scale=False, outfile=streampng);
         st.write(os.path.join(outdir, 'stream.mseed'), format='MSEED')
-    
-    # plot amplitude spectra
-    #plot_amplitude_spectra(st)    
 
-    # --- Run the pipeline ---
-
-    #st.write('test.mseed', format='MSEED')
     best_params = {'algorithm': 'zdetect', 'sta': 1.989232720619933, 'lta': 29.97100574322863, 'thr_on': 1.6780449441904004, 'thr_off': 0.6254430984099986}
     if interactive:
-        st, best_params, all_params_df = run_event_detection(st, n_trials=100) 
+        st, best_params, all_params_df = run_event_detection(st, n_trials=500) 
         print(f'best_params: {best_params}')
         all_params_df = all_params_df.sort_values(by='misfit', ascending=True).head(20)
         #all_params_df = all_params_df.nsmallest(20, 'misfit') # just save smallest values
@@ -158,7 +122,6 @@ def asl_event(st, raw_st, **kwargs):
         dsamObj.plot(metrics=metric, equal_scale=True, outfile=dsampng)
         dsamObj.write(outdir, ext='csv')
 
-
     # loop over Q, peakf, surfaceWaveSpeed_kms, metric
     print(f'Computing ASL for Q={Q}, peakf={peakf}, surfaceWaveSpeed_kms={surfaceWaveSpeed_kms}, metric={metric}')
 
@@ -182,9 +145,7 @@ def asl_event(st, raw_st, **kwargs):
                         # plot DRS data
                         if DRSobj and isinstance(DRSobj, DRS):
                             drspng = os.path.join(outdir, f'dome_DRS_Q{this_Q}_f{this_peakf}_v{this_surfaceWaveSpeed_kms}_{this_metric}.png')
-                            DRSobj.plot(metrics=this_metric, equal_scale=True, outfile=drspng)
-                    
-
+                            DRSobj.plot(metrics=this_metric, equal_scale=True, outfile=drspng)               
 
                     # Create an ASL object with DSAM (displacement amplitude) data, inventory data, and a grid object. The inventory is used for station locations to compute distances
                     aslobj = ASL(dsamObj, this_metric, inv, gridobj, window_seconds)
@@ -211,32 +172,14 @@ def asl_event(st, raw_st, **kwargs):
                                 equal_size=False, add_labels=True, stations=[tr.stats.station for tr in detected_st], \
                                     outfile=os.path.join(outdir, f'ASL_Q{this_Q}_f{this_peakf}_v{this_surfaceWaveSpeed_kms}_{this_metric}.png')) #, show=True)
 
-
-
-                
 outdir = os.path.join(os.path.dirname(SEISAN_DATA), 'ASL_DB')
-read_seisandb_apply_custom_function_to_each_event(startdate, enddate, 
-                                                SEISAN_DATA=SEISAN_DATA, 
-                                                DB='MVOE_', 
-                                                inv=inv, 
-                                                post_process_function=asl_event, 
-                                                #post_process_function=None, 
-                                                verbose=True, 
-                                                bool_clean=True, 
-                                                plot=True, 
-                                                valid_subclasses='re', 
-                                                quality_threshold=1.0, 
-                                                outputType='DISP', 
-                                                freq=[0.5, 30.0],
-                                                vertical_only=True, 
-                                                # arguments for asl_event follow
-                                                outdir=outdir,
-                                                Q=23, 
-                                                surfaceWaveSpeed_kms = 1.5,
-                                                peakf = 8.0, 
-                                                metric='rms',
-                                                window_seconds=5, 
-                                                min_stations=5,
-                                                interactive=True,
-                                                )
-                   
+read_seisandb_apply_custom_function_to_each_event(
+    startdate, enddate, SEISAN_DATA=SEISAN_DATA, DB='MVOE_', 
+    inv=inv, post_process_function=asl_event, verbose=True, 
+    bool_clean=True, plot=True, valid_subclasses='re', 
+    quality_threshold=1.0, outputType='DISP', freq=[0.5, 30.0], vertical_only=True, 
+    max_dropout=4.0,
+    # arguments for asl_event follow
+    outdir=outdir, Q=23, surfaceWaveSpeed_kms = 1.5, peakf = 8.0, 
+    metric='rms', window_seconds=5, min_stations=5,interactive=True,
+    )
