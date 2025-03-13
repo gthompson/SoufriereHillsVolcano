@@ -8,7 +8,7 @@ from scipy.interpolate import interp1d
 from obspy import Stream, Trace
 #from obspy.signal.quality_control import MSEEDMetadata 
 #import libseisGT
-from libseisGT import add_to_trace_history #, clean_trace
+from lib.libseisGT_old3 import add_to_trace_history #, clean_trace
 import pandas as pd
 from math import pi
 

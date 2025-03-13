@@ -27,261 +27,257 @@ from obspy.core.event import Event, Origin, Magnitude, Catalog, ResourceIdentifi
 ##                Trace  tools                                       ##
 #######################################################################
 
-def preprocess_trace(tr, bool_despike=True, bool_clean=True, inv=None, quality_threshold=-np.Inf, taperFraction=0.05, \
-                  filterType="bandpass", freq=[0.5, 30.0], corners=6, zerophase=False, outputType='VEL', \
-                    miniseed_qc=True, verbose=False, max_dropout=0.0, units='Counts', max_dropout=0.0, bool_detrend=True):
+def preprocess_trace(tr, trace_id, bool_despike=True, bool_clean=True, inv=None, quality_threshold=-np.Inf, 
+                      taperFraction=0.05, filterType="bandpass", freq=[0.5, 30.0], corners=6, zerophase=False, 
+                      outputType='VEL', miniseed_qc=True, verbose=False, max_dropout=0.0, units='Counts', 
+                      bool_detrend=True, save_metrics=True, save_plot=True, plot_dir="plots", report_dir="reports"):
     """
-    Preprocesses a seismic trace by applying quality control, filtering, and instrument response correction.
+    Preprocesses a seismic trace while tracking metadata, gaps, and quality metrics.
 
-    This function performs the following operations:
-    - Quality control checks, including dropout detection and data gaps.
-    - Optional despiking to remove single-sample anomalies.
-    - Detrending, tapering, and bandpass filtering.
-    - Instrument response removal (if an ObsPy inventory is provided).
-    - Scaling data to physical units using the calibration factor (`calib`).
-    - Tracks processing steps in `tr.stats.history`.
+    At the end, key metrics (gaps, availability, clipping, noise) are stored in a local 
+    DataFrame (`trace_metrics_df`), saved to CSV, and optionally plotted.
 
     Parameters:
     ----------
     tr : obspy.Trace
         The seismic trace to process.
-    bool_despike : bool, optional
-        Whether to remove single-sample spikes from the trace (default: True).
-    bool_clean : bool, optional
-        Whether to apply detrending, tapering, and filtering (default: True).
-    inv : obspy.Inventory, optional
-        Instrument response metadata for deconvolution (default: None).
-    quality_threshold : float, optional
-        Minimum quality factor required to keep the trace (default: -Inf).
-    taperFraction : float, optional
-        Fraction of the trace length to use for tapering (default: 0.05).
-    filterType : str, optional
-        Type of filter to apply. Options: "bandpass", "lowpass", "highpass" (default: "bandpass").
-    freq : list of float, optional
-        Frequency range for filtering: [freq_min, freq_max] (default: [0.5, 30.0] Hz).
-    corners : int, optional
-        Number of filter corners (default: 6).
-    zerophase : bool, optional
-        Whether to apply a zero-phase filter (default: False).
-    outputType : str, optional
-        Type of output after instrument response removal. Options: "VEL" (velocity), "DISP" (displacement), "ACC" (acceleration), "DEF" (deformation) (default: "VEL").
-    miniseed_qc : bool, optional
-        Whether to perform MiniSEED quality control checks (default: True).
-    verbose : bool, optional
-        If True, prints processing steps (default: False).
-    max_dropout : float, optional
-        Maximum allowable data dropout percentage before rejection (default: 0.0).
-    units : str, optional
-        Unit of the trace before processing. Defaults to "Counts".
+    trace_id : str
+        Unique identifier for the trace (e.g., "NET.STA.LOC.CHAN.YYYYJJJ").
+    save_metrics : bool, optional
+        If `True`, saves metrics to an external CSV file after processing.
+    save_plot : bool, optional
+        If `True`, saves waveform plots for visual review.
+    plot_dir : str, optional
+        Directory where plots will be saved (default: "plots").
+    report_dir : str, optional
+        Directory where reports (CSV summaries) will be saved (default: "reports").
 
     Returns:
     -------
-    bool
-        Returns `True` if the trace was successfully processed, `False` if rejected due to poor quality or errors.
-    
-    Notes:
-    ------
-    - If `inv` is provided, `remove_response()` is used to convert the waveform to physical units.
-    - If `inv` is not provided but `tr.stats.calib` is set, the trace is manually scaled.
-    - If the trace fails quality checks (e.g., excessive gaps), it is rejected.
-    - `tr.stats.history` keeps track of applied processing steps.
-
-    Example:
-    --------
-    ```python
-    from obspy import read
-    from obspy.clients.fdsn import Client
-
-    # Read a seismic trace
-    tr = read("example.mseed")[0]
-
-    # Load an inventory for response correction
-    client = Client("IRIS")
-    inv = client.get_stations(network="IU", station="ANMO", level="response")
-
-    # Process the trace
-    success = preprocess_trace(tr, inv=inv, verbose=True)
-
-    if success:
-        tr.plot()
-    else:
-        print("Trace did not meet quality criteria and was rejected.")
-    ```
+    tuple
+        - `bool` indicating whether the trace was successfully processed.
+        - `pandas.DataFrame` containing trace metrics.
     """
+    # Ensure output directories exist
+    os.makedirs(plot_dir, exist_ok=True)
+    os.makedirs(report_dir, exist_ok=True)
+
+    trace_metrics_df = pd.DataFrame()  # Local variable to store metrics for this run
+
     if verbose:
         print(f'Processing {tr}')
-    if not 'history' in tr.stats:
-        tr.stats['history'] = list()    
-
-    if not 'units' in tr.stats:
-        tr.stats['units'] = units  
-
-    # a good trace has quality factor 3, one with 0s and -1s has 1, bad trace has 0
-    quality_factor = 1.0
-    is_bad_trace = False    
-
-    # ignore traces with weirdly low sampling rates
-    if tr.stats.sampling_rate < min_sampling_rate and tr.stats.channel[0] != 'L':
-        add_to_trace_history(tr, 'Sampling rate too low')
-        is_bad_trace = True   
-
-    # ignore traces with few samples
-    if tr.stats.npts < tr.stats.sampling_rate:
-        add_to_trace_history(tr, 'Not enough samples')
-        is_bad_trace = True
     
-    # Step 1: Detect Empty or Nearly Empty Traces
+    tr.stats.setdefault('history', [])
+    tr.stats.setdefault('units', units)
+    quality_factor = 1.0  
+    tr.stats['gap_report'] = []
+
+    # --- Step 1: Reject Empty Traces ---
     if _is_empty_trace(tr):
         add_to_trace_history(tr, 'Trace is blank')
-        return 0.0  # Discard trace
+        trace_metrics_df = _save_trace_metrics(tr, trace_id, trace_metrics_df, report_dir, rejected=True)
+        return False, trace_metrics_df
 
-    # Step 2: Compute Raw Data Quality Metrics
+    # --- Step 2: Compute Quality Metrics ---
     tr.stats['metrics'] = {}
-    tr.stats.metrics["twin"] = tr.stats.npts * tr.stats.delta  # Compute trace duration
+    tr.stats.metrics["twin"] = tr.stats.npts * tr.stats.delta
     if miniseed_qc:
         _can_write_to_miniseed_and_read_back(tr, return_metrics=True)
     else:
         _compute_trace_metrics(tr)
 
-    # Adjust quality factor based on gaps, overlaps, and availability
-    tr.stats.quality_factor -= tr.stats.metrics['num_gaps']
-    tr.stats.quality_factor -= tr.stats.metrics['num_overlaps']
+    # Adjust quality based on gaps and availability
+    tr.stats.quality_factor -= (tr.stats.metrics['num_gaps'] + tr.stats.metrics['num_overlaps'])
     tr.stats.quality_factor *= tr.stats.metrics['percent_availability'] / 100.0
 
-    # Step 3: Detect Bit-Level Noise
-    unique_values = np.unique(tr.data)
-    num_unique_values = unique_values.size
-    if num_unique_values > 10:
-        quality_factor += np.log10(num_unique_values)
-    else:
-        add_to_trace_history(tr, 'Bit-level noise suspected')
-        return 0.0  # Discard trace
+    # --- Step 3: Detect Dropouts and Gaps ---
+    if not _detect_and_handle_gaps(tr, max_dropout=max_dropout, verbose=verbose):
+        trace_metrics_df = _save_trace_metrics(tr, trace_id, trace_metrics_df, report_dir, rejected=True)
+        return False, trace_metrics_df  # Excessive dropouts → discard trace
 
-    # Step 4: Detect and Handle Dropouts
-    if not _detect_and_handle_dropouts(tr, max_dropout, verbose=verbose):
-        return 0.0  # Dropout is too long → discard trace
-
-    # Step 5: Detect and Correct Clipping, Spikes, and Step Functions
+    # --- Step 4: Detect and Correct Artifacts ---
     if verbose:
         print('- detecting and correcting artifacts')
 
     _detect_and_correct_artifacts(tr, amp_limit=1e10, count_thresh=10, spike_thresh=50.0, fill_method="interpolate")
 
-    # Step 6: Adjust Quality Factor Based on Artifacts
+    # Adjust Quality Factor
     artifacts = tr.stats.get('artifacts', {})
-    upperClipped = artifacts.get("upper_clipped", False)
-    lowerClipped = artifacts.get("lower_clipped", False)
-    spike_count = artifacts.get("spike_count", 0)
-
-    if upperClipped:
+    if artifacts.get("upper_clipped", False):
         quality_factor /= 2.0
-    if lowerClipped:
+    if artifacts.get("lower_clipped", False):
         quality_factor /= 2.0
+    if artifacts.get("spike_count", 0) > 0:
+        add_to_trace_history(tr, f'{artifacts["spike_count"]} outliers found')
 
-    if spike_count == 0:
-        quality_factor += 1.0
-    else:
-        add_to_trace_history(tr, f'{spike_count} outliers (spikes) found')
-        tr.stats['outlier_indices'] = artifacts.get("spike_indices", [])
-
-    # Step 7: Final Quality Check
+    # --- Step 5: Final Quality Check ---
     if tr.stats.quality_factor < quality_threshold:
-        return False
+        trace_metrics_df = _save_trace_metrics(tr, trace_id, trace_metrics_df, report_dir, rejected=True)
+        return False, trace_metrics_df
+
+    # --- Step 6: Detrend (Gap-Aware) ---
+    if bool_detrend:
+        tr = detrend_trace(tr, gap_threshold=3, verbose=verbose)
+
+    # --- Step 7: Apply Cleaning Steps (Pad, Taper, Filter, Response) ---
+    if bool_clean:
+        _clean_trace(tr, taperFraction, filterType, freq, corners, zerophase, inv, outputType, verbose)
+
+    # --- Step 8: Save Metrics & Waveform Plot ---
+    trace_metrics_df = _save_trace_metrics(tr, trace_id, trace_metrics_df, report_dir)
+
+    if save_plot:
+        _save_trace_plot(tr, trace_id, plot_dir)
 
     if verbose:
-        print(f'- artifacts processed. qf={tr.stats.quality_factor}')
-
-    if bool_detrend or bool_clean:
-        tr = detrend_trace(tr, gap_threshold=3, verbose=True)      
-
-    """ CLEAN (PAD, TAPER, FILTER, CORRECT, UNPAD) TRACE """
-    if bool_clean:
-        # save the start and end times for later 
-        startTime = tr.stats.starttime
-        endTime = tr.stats.endtime
-        
-        # pad the Trace
-        npts = tr.stats.npts
-        npts_pad = int(taperFraction * npts)
-        npts_pad_seconds = npts_pad * tr.stats.delta
-        if npts_pad_seconds < 1/freq[0]: # impose a minimum pad length of 10-seconds
-            npts_pad_seconds = 1/freq[0]
+        print(f'- processing complete. qf={tr.stats.quality_factor}')
     
-        if verbose:
-            print('- padding')
-        _pad_trace(tr, npts_pad_seconds)
-        max_fraction = npts_pad / tr.stats.npts
+    return True, trace_metrics_df
+
+# ---- Helper Function to Save Metrics ----
+def _save_trace_metrics(tr, trace_id, metrics_df, report_dir, rejected=False):
+    """
+    Extracts trace metadata and saves it in a Pandas DataFrame.
+
+    Parameters:
+    ----------
+    tr : obspy.Trace
+        Processed seismic trace with metadata.
+    trace_id : str
+        Unique identifier for the trace.
+    metrics_df : pandas.DataFrame
+        DataFrame storing trace metrics.
+    report_dir : str
+        Directory where reports will be saved.
+    rejected : bool, optional
+        If `True`, marks the trace as rejected.
+
+    Returns:
+    -------
+    pandas.DataFrame
+        Updated DataFrame with new trace metrics.
+    """
+    metrics = {
+        "trace_id": trace_id,
+        "starttime": tr.stats.starttime.datetime if not rejected else None,
+        "endtime": tr.stats.endtime.datetime if not rejected else None,
+        "sampling_rate": tr.stats.sampling_rate if not rejected else None,
+        "num_samples": tr.stats.npts if not rejected else None,
+        "percent_availability": tr.stats.metrics.get("percent_availability", None) if not rejected else None,
+        "num_gaps": tr.stats.metrics.get("num_gaps", None) if not rejected else None,
+        "num_overlaps": tr.stats.metrics.get("num_overlaps", None) if not rejected else None,
+        "gap_report": tr.stats.get("gap_report", []) if not rejected else None,
+        "clipped_upper": tr.stats.get("artifacts", {}).get("upper_clipped", False) if not rejected else None,
+        "clipped_lower": tr.stats.get("artifacts", {}).get("lower_clipped", False) if not rejected else None,
+        "spike_count": tr.stats.get("artifacts", {}).get("spike_count", 0) if not rejected else None,
+        "quality_factor": tr.stats.quality_factor if not rejected else None,
+        "history": tr.stats.history if not rejected else [],
+        "status": "Rejected" if rejected else "Accepted"
+    }
+
+    trace_series = pd.Series(metrics)
+    metrics_df = metrics_df.append(trace_series, ignore_index=True)
+
+    metrics_df.to_csv(os.path.join(report_dir, "trace_quality_report.csv"), index=False)
+
+    return metrics_df
+
+# ---- Summary Statistics Function ----
+def summarize_processing_results(metrics_df, report_dir="reports"):
+    """
+    Summarizes trace processing results by computing rejection rates, quality statistics, and common issues.
+
+    Parameters:
+    ----------
+    metrics_df : pandas.DataFrame
+        DataFrame containing trace processing results.
+    report_dir : str, optional
+        Directory where summary reports will be saved (default: "reports").
+
+    Returns:
+    -------
+    dict
+        A dictionary with summary statistics.
+    """
+    os.makedirs(report_dir, exist_ok=True)
+
+    total_traces = len(metrics_df)
+    rejected_traces = metrics_df[metrics_df["status"] == "Rejected"].shape[0]
+    accepted_traces = total_traces - rejected_traces
+    avg_quality = metrics_df[metrics_df["status"] == "Accepted"]["quality_factor"].mean()
     
-        if not 'tapered' in tr.stats.history:
-            if verbose:
-                print('- tapering')
-            tr.taper(max_percentage=max_fraction, type="hann") 
-            add_to_trace_history(tr, 'tapered')        
+    summary = {
+        "Total Traces Processed": total_traces,
+        "Accepted Traces": accepted_traces,
+        "Rejected Traces": rejected_traces,
+        "Rejection Rate (%)": (rejected_traces / total_traces) * 100 if total_traces > 0 else 0,
+        "Avg Quality Factor (Accepted)": avg_quality
+    }
 
-        if verbose:
-            print('- filtering')
-        if filterType == 'bandpass':
-            tr.filter(filterType, freqmin=freq[0], freqmax=freq[1], corners=corners, zerophase=zerophase)
-        elif filterType == 'lowpass' or filterType == 'highpass':    
-            tr.filter(filterType, freq=freq[0], corners=corners, zerophase=zerophase)
-        _update_trace_filter(tr, filterType, freq, zerophase)
-        add_to_trace_history(tr, filterType)  
+    pd.DataFrame([summary]).to_csv(os.path.join(report_dir, "processing_summary.csv"), index=False)
 
-        # deconconvolve 
-        if inv:
-            # fully correct
+    return summary
+
+# ---- Helper Function to Save Waveform Plot ----
+def _save_trace_plot(tr, trace_id):
+    """
+    Saves a waveform plot for a processed trace.
+
+    Parameters:
+    ----------
+    tr : obspy.Trace
+        Processed trace to plot.
+    trace_id : str
+        Unique identifier for the trace.
+    """
+    plt.figure(figsize=(10, 4))
+    plt.plot(tr.times(), tr.data, label=f'Trace: {trace_id}')
+    plt.xlabel('Time (s)')
+    plt.ylabel('Amplitude')
+    plt.title(f'Seismic Trace - {trace_id}')
+    plt.legend()
+    plt.grid()
+    plt.savefig(f"plots/{trace_id}.png")
+    plt.close()
+
+# ---- Function to Reload & Analyze Trace Reports ----
+def load_trace_report(filename="trace_quality_report.csv", filter_criteria=None):
+    """
+    Loads and optionally filters a previously saved trace quality report.
+
+    Parameters:
+    ----------
+    filename : str, optional
+        Path to the CSV file containing the trace report.
+    filter_criteria : dict, optional
+        Dictionary of filtering conditions (e.g., {"quality_factor": ">2"}).
+
+    Returns:
+    -------
+    pandas.DataFrame
+        The filtered DataFrame.
+    """
+    df = pd.read_csv(filename)
+
+    if filter_criteria:
+        for key, condition in filter_criteria.items():
+            df = df.query(f"{key} {condition}")
+
+    return df
+
+def _handle_instrument_response(tr, inv, outputType, verbose):
+    """
+    Removes the instrument response using ObsPy's `remove_response()`.
+    """
+    if inv:
+        try:
             if verbose:
                 print('- removing instrument response')
-            ''' previous ways we did this
-            #clean_trace(tr, taperFraction=taperFraction, filterType=filterType, freq=freq, corners=corners, zerophase=zerophase, inv=inv, outputType=outputType)
-            simple_clean(tr, taperFraction=taperFraction, filterType=filterType, freq=freq, corners=corners, zerophase=zerophase, inv=inv, outputType=outputType)
-            #tr.remove_response(inventory=inv, output=outputType, pre_filt=(freq[0]/2, freq[0], freq[1], freq[1]*2), water_level=60, zero_mean=True, taper=True, taper_fraction=taperFraction, plot=False, fig=None)
-            removeInstrumentResponse(tr, None, outputType = outputType, inventory = inv, taperFraction=0)
-            tr.remove_response(inventory=inv, output=outputType, \
-                            pre_filt=(freq[0]/1.5, freq[0], freq[1], freq[1]*1.5), \
-                            water_level=60, zero_mean=True, \
-                            taper=True, taper_fraction=taperFraction, plot=False, fig=None)
-            '''
-            if tr.stats.channel[1]=='D':
-                outputType='DEF' # for pressure sensor
-            try:
-                tr.remove_response(inventory=inv, output=outputType, \
-                                pre_filt=None, \
-                                water_level=60, zero_mean=True, \
-                                taper=False, taper_fraction=0.0, plot=False, fig=None)        
-                add_to_trace_history(tr, 'calibrated')
-                tr.stats.calib = 1.0
-                tr.stats['calib_applied'] = _get_calib(tr, inv) # we have to do this, as the calib value is used to scale the data in plots
-            except Exception as e:
-                print(e)
-                print('remove_response failed for %s' % tr.id)
-                return False       
-        
-        elif tr.stats['units'] == 'Counts' and not 'calibrated' in tr.stats.history and tr.stats.calib!=1.0:
-            tr.data = tr.data * tr.stats.calib
-            tr.stats['calib_applied'] = tr.stats.calib
-            tr.stats.calib = 1.0 # we have to do this, as the calib value is used to scale the data in plots
-            add_to_trace_history(tr, 'calibrated') 
-        
-        if 'calibrated' in tr.stats.history:           
-            if tr.stats.channel[1]=='H':
-                if outputType=='VEL':
-                    tr.stats['units'] = 'm/s'
-                elif outputType=='DISP':
-                    tr.stats['units'] = 'm'
-            elif tr.stats.channel[1]=='N':
-                tr.stats['units'] = 'm/s2'                
-            elif tr.stats.channel[1]=='D':
-                tr.stats['units'] = 'Pa'  
-
-        # remove the pad
-        if verbose:
-            print('- unpadding')
-        _unpad_trace(tr)    
-
-    elif verbose:
-        print(f'- not cleaning. qf={tr.stats.quality_factor}')
-    return True        
+            tr.remove_response(inventory=inv, output=outputType, pre_filt=None, water_level=60, zero_mean=True)
+            add_to_trace_history(tr, 'calibrated')
+        except Exception as e:
+            print(f'Error removing response: {e}')
+            return False
 
 def add_to_trace_history(tr, message):
     """
@@ -2243,7 +2239,6 @@ def add_channel_detections(st, lta=5.0, threshon=0.5, threshoff=0.0, max_duratio
             tr.stats.triggers.append(trigpairUTC)
 
 def get_event_window(st, pretrig=30, posttrig=30):
-def get_event_window(st, pretrig=30, posttrig=30):
     """
     Determines the time window encompassing all detected triggers in a Stream, with optional pre/post-event padding.
 
@@ -3389,6 +3384,10 @@ if __name__ == __main__:
 
     # Plot the result
     tr.plot()    
+
+    # After processing all traces
+    summary_stats = summarize_processing_results(trace_metrics_df)
+    print(summary_stats)
 
 #not sure where this goes from ChapGpt
 def detect_and_handle_gaps(tr, gap_threshold=10, null_values=[0, np.nan], verbose=False):

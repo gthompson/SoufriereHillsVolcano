@@ -3,7 +3,7 @@ from obspy.core.inventory import Inventory, Network, Station, Channel, Site
 from obspy import UTCDateTime, read_inventory
 from obspy.core.inventory.response import Response, InstrumentSensitivity #PolesZerosResponseStage
 
-from libseisGT import add_to_trace_history
+from lib.libseisGT_old3 import add_to_trace_history
 
 
 import os

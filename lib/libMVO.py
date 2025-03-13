@@ -8,7 +8,7 @@ from obspy import read_inventory, read, Stream, Trace
 
 LIBpath = os.path.join( os.getenv('HOME'),'src','kitchensinkGT', 'LIB')
 sys.path.append(LIBpath)
-from libseisGT import get_seed_band_code, fix_trace_id, remove_empty_traces
+from lib.libseisGT_old3 import get_seed_band_code, fix_trace_id, remove_empty_traces
 from metrics import process_trace, ampengfft
 sys.path.append(os.path.join( os.getenv('HOME'),'src', 'icewebPy') )
 import IceWeb
@@ -489,7 +489,7 @@ def read_enhanced_stream(enhanced_wavpath):
 def respfiles2masterstationxml(SEISAN_DATA, xmlfile):# Merge Montserrat RESP files
     # A function we are only likely to use once, but an important one to keep
     from obspy.io.xseed.core import _read_resp
-    from libseisGT import create_dummy_inventory, merge_inventories
+    from lib.libseisGT_old3 import create_dummy_inventory, merge_inventories
     station0hypfile = os.path.join(SEISAN_DATA, 'DAT', 'STATION0_MVO.HYP')
     station_locationsDF = parse_STATION0HYP(station0hypfile) 
     respfiles = glob.glob(os.path.join(SEISAN_DATA, 'CAL', 'RESP*'))

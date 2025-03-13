@@ -24,7 +24,7 @@ from obspy import UTCDateTime
 from datetime import datetime 
 LIBpath = os.path.join( os.getenv('HOME'),'src','kitchensinkGT', 'LIB')
 sys.path.append(LIBpath)
-from libseisGT import inventory2traceid, get_FDSN_inventory, clean_trace, attach_station_coordinates_from_inventory
+from lib.libseisGT_old3 import inventory2traceid, get_FDSN_inventory, clean_trace, attach_station_coordinates_from_inventory
 from obspy.clients.fdsn import Client
 #from obspy.core.util import AttribDict
 from obspy.geodetics import locations2degrees, degrees2kilometers, kilometers2degrees

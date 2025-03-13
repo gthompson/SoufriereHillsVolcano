@@ -6,7 +6,7 @@ from obspy import read
 import matplotlib.pyplot as plt
 import sys
 import time
-from libseisGT import fix_trace_id, check_read_write
+from lib.libseisGT_old3 import fix_trace_id, check_read_write
 
 def get_processed_dirs(LOG_FILE):
     """Reads the log file and returns a set of already processed directories."""

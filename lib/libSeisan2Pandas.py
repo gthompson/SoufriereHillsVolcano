@@ -19,7 +19,7 @@ from libMVO import fix_trace_id, inventory_fix_id_mvo, load_mvo_inventory, \
     add_station_locations, load_mvo_master_inventory
 from metrics import process_trace, select_by_index_list, ampengfft, \
     Mlrichter, Eseismic_Boatwright, Eseismic2magnitude, compute_stationEnergy
-from libseisGT import Stream_min_starttime #, plot_seismograms 
+from lib.libseisGT_old3 import Stream_min_starttime #, plot_seismograms 
 from seisan_classes import spath2datetime, Sfile #, printEvents
 from obspy.geodetics import locations2degrees, degrees2kilometers
 

@@ -10,7 +10,7 @@ import pandas as pd
 #import numpy as np
 #import obspy
 #import libSeisan2Pandas as seisan
-from libseisGT import process_trace, remove_low_quality_traces
+from lib.libseisGT_old3 import process_trace, remove_low_quality_traces
 
 class Sfile:
     'Base class for Sfile parameters'
