@@ -9,12 +9,15 @@ from obspy import UTCDateTime, Stream
 #from pprint import pprint
 script_dir = os.path.dirname(os.path.abspath(__file__))
 localLibPath = os.path.join(os.path.dirname(script_dir), 'lib')
+#print(localLibPath)
+#exit()
 sys.path.append(localLibPath)
 from libseisGT import detect_network_event
-from seisan_classes import set_globals, read_seisandb_apply_custom_function_to_each_event
+from seisan_classes import set_globals, \
+    read_seisandb_apply_custom_function_to_each_event
 from SAM import DSAM, DRS
 from ASL import ASL, initial_source, make_grid, dome_location
-from libDetectionTuner import run_event_detection, signal2noise, plot_detected_stream
+from libDetectionTuner import run_event_detection, detection_snr, plot_detected_stream, run_monte_carlo
 
 HOME = os.path.expanduser('~')
 if sys.platform == "darwin":
@@ -29,8 +32,10 @@ elif sys.platform.startswith("linux"):
 
 SEISAN_DATA, DB, station_locationsDF, inv = set_globals(SEISAN_DATA=SEISAN_DATA)
 
-startdate=UTCDateTime(2001,3,1,14,16,0)
-enddate=UTCDateTime(2001,3,2)
+#startdate=UTCDateTime(2001,3,1,14,16,0)
+#enddate=UTCDateTime(2001,3,2)
+startdate=UTCDateTime(2001,1,1)
+enddate=UTCDateTime(2001,1,2)
 
 def asl_event(st, raw_st, **kwargs):
     print(f"Received kwargs in asl_event: {kwargs}")
@@ -51,6 +56,7 @@ def asl_event(st, raw_st, **kwargs):
     interactive = kwargs.get("interactive", False)
     freq = [1.0, 15.0]
     compute_DRS_at_fixed_source = kwargs.get("compute_DRS_at_fixed_source", True)
+    numtrials = kwargs.get("numtrials", 500)
 
     if not isinstance(Q, list):
         Q = [Q]
@@ -76,21 +82,25 @@ def asl_event(st, raw_st, **kwargs):
 
     best_params = {'algorithm': 'zdetect', 'sta': 1.989232720619933, 'lta': 29.97100574322863, 'thr_on': 1.6780449441904004, 'thr_off': 0.6254430984099986}
     if interactive:
-        st, best_params, all_params_df = run_event_detection(st, n_trials=500) 
-        print(f'best_params: {best_params}')
-        all_params_df = all_params_df.sort_values(by='misfit', ascending=True).head(20)
-        #all_params_df = all_params_df.nsmallest(20, 'misfit') # just save smallest values
-        all_params_df.to_csv(os.path.join(outdir, 'detection_trials.csv'))
-        st.write(os.path.join(outdir, 'selected_stream.mseed'), format='MSEED')
-        # noise spectra
-        snr, fmetrics_dict = signal2noise(st, best_params)
-        print(f'tuner signal_to_noise {snr}')
-        if fmetrics_dict:
-            freq = [fmetrics_dict['f_low'], fmetrics_dict['f_high']]
-            print(f'frequency metrics: {fmetrics_dict}')
-            peakf = [fmetrics_dict['f_peak']]
-        else:
-            print('No frequency metrics returned from tuner')
+        st, best_params, all_params_df = run_event_detection(st, n_trials=numtrials) 
+    else:  
+        all_params_df, best_params = run_monte_carlo(st, st[0].stats.starttime+5.0, st[0].stats.endtime-5.0, numtrials)   # assume pre-trigger and post-trigger time of 5-s, 
+
+    print(f'best_params: {best_params}')
+    all_params_df = all_params_df.sort_values(by='misfit', ascending=True).head(20)
+    #all_params_df = all_params_df.nsmallest(20, 'misfit') # just save smallest values
+    all_params_df.to_csv(os.path.join(outdir, 'detection_trials.csv'))
+    st.write(os.path.join(outdir, 'selected_stream.mseed'), format='MSEED')
+    # noise spectra
+    snr, fmetrics_dict = detection_snr(st, best_params)
+    print(f'tuner signal_to_noise {snr}')
+    if fmetrics_dict:
+        freq = [fmetrics_dict['f_low'], fmetrics_dict['f_high']]
+        print(f'frequency metrics: {fmetrics_dict}')
+        peakf = [fmetrics_dict['f_peak']]
+    else:
+        print('No frequency metrics returned from tuner')
+
 
     # detect
     best_trig = detect_network_event(st, minchans=None, threshon=best_params['thr_on'], threshoff=best_params['thr_off'], \
@@ -181,5 +191,5 @@ read_seisandb_apply_custom_function_to_each_event(
     max_dropout=4.0,
     # arguments for asl_event follow
     outdir=outdir, Q=23, surfaceWaveSpeed_kms = 1.5, peakf = 8.0, 
-    metric='rms', window_seconds=5, min_stations=5,interactive=True,
+    metric='rms', window_seconds=5, min_stations=5,interactive=False,
     )

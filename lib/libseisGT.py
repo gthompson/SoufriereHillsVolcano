@@ -29,7 +29,7 @@ from obspy.core.event import Event, Origin, Magnitude, Catalog, ResourceIdentifi
 
 def preprocess_trace(tr, bool_despike=True, bool_clean=True, inv=None, quality_threshold=-np.Inf, taperFraction=0.05, \
                   filterType="bandpass", freq=[0.5, 30.0], corners=6, zerophase=False, outputType='VEL', \
-                    miniseed_qc=True, verbose=False, max_dropout=0.0, units='Counts', max_dropout=0.0, bool_detrend=True):
+                    miniseed_qc=True, verbose=False, max_dropout=0.0, units='Counts', bool_detrend=True, min_sampling_rate=20.0):
     """
     Preprocesses a seismic trace by applying quality control, filtering, and instrument response correction.
 
@@ -117,18 +117,19 @@ def preprocess_trace(tr, bool_despike=True, bool_clean=True, inv=None, quality_t
         tr.stats['units'] = units  
 
     # a good trace has quality factor 3, one with 0s and -1s has 1, bad trace has 0
-    quality_factor = 1.0
-    is_bad_trace = False    
+    if not 'quality_factor' in tr.stats:
+        tr.stats['quality_factor'] = 1.0
+    #is_bad_trace = False    
 
     # ignore traces with weirdly low sampling rates
     if tr.stats.sampling_rate < min_sampling_rate and tr.stats.channel[0] != 'L':
         add_to_trace_history(tr, 'Sampling rate too low')
-        is_bad_trace = True   
+        #is_bad_trace = True   
 
     # ignore traces with few samples
     if tr.stats.npts < tr.stats.sampling_rate:
         add_to_trace_history(tr, 'Not enough samples')
-        is_bad_trace = True
+        #is_bad_trace = True
     
     # Step 1: Detect Empty or Nearly Empty Traces
     if _is_empty_trace(tr):
@@ -152,7 +153,7 @@ def preprocess_trace(tr, bool_despike=True, bool_clean=True, inv=None, quality_t
     unique_values = np.unique(tr.data)
     num_unique_values = unique_values.size
     if num_unique_values > 10:
-        quality_factor += np.log10(num_unique_values)
+        tr.stats.quality_factor += np.log10(num_unique_values)
     else:
         add_to_trace_history(tr, 'Bit-level noise suspected')
         return 0.0  # Discard trace
@@ -174,12 +175,12 @@ def preprocess_trace(tr, bool_despike=True, bool_clean=True, inv=None, quality_t
     spike_count = artifacts.get("spike_count", 0)
 
     if upperClipped:
-        quality_factor /= 2.0
+        tr.stats.quality_factor /= 2.0
     if lowerClipped:
-        quality_factor /= 2.0
+        tr.stats.quality_factor /= 2.0
 
     if spike_count == 0:
-        quality_factor += 1.0
+        tr.stats.quality_factor += 1.0
     else:
         add_to_trace_history(tr, f'{spike_count} outliers (spikes) found')
         tr.stats['outlier_indices'] = artifacts.get("spike_indices", [])
@@ -197,8 +198,8 @@ def preprocess_trace(tr, bool_despike=True, bool_clean=True, inv=None, quality_t
     """ CLEAN (PAD, TAPER, FILTER, CORRECT, UNPAD) TRACE """
     if bool_clean:
         # save the start and end times for later 
-        startTime = tr.stats.starttime
-        endTime = tr.stats.endtime
+        #startTime = tr.stats.starttime
+        #endTime = tr.stats.endtime
         
         # pad the Trace
         npts = tr.stats.npts
@@ -566,7 +567,7 @@ def _detect_and_handle_dropouts(tr, max_dropout, verbose=False):
     except:
         return False  # If error occurs, discard trace
     
- def _get_islands(arr, mask):
+def _get_islands(arr, mask):
     """
     Identifies contiguous sequences of the same value in an array.
 
@@ -2243,7 +2244,6 @@ def add_channel_detections(st, lta=5.0, threshon=0.5, threshoff=0.0, max_duratio
             tr.stats.triggers.append(trigpairUTC)
 
 def get_event_window(st, pretrig=30, posttrig=30):
-def get_event_window(st, pretrig=30, posttrig=30):
     """
     Determines the time window encompassing all detected triggers in a Stream, with optional pre/post-event padding.
 
@@ -3370,25 +3370,7 @@ def parse_hypo71_file(file_path):
 
     return catalog, unparsed_lines
 
-if __name__ == __main__:
-
-    # Create a sample trace with gaps
-    data = np.concatenate([np.random.randn(100), np.full(5, np.nan), np.random.randn(100)])
-    tr = Trace(data=data)
-
-    # Run the detrending function
-    tr = detrend_trace(tr, gap_threshold=3, verbose=True)
-
-
-    # Load a seismic trace with gaps
-    st = read("example_with_gaps.mseed")
-    tr = st[0]  # Extract first trace
-
-    # Process gaps
-    tr = detect_and_handle_gaps(tr, gap_threshold=5, verbose=True)
-
-    # Plot the result
-    tr.plot()    
+   
 
 #not sure where this goes from ChapGpt
 def detect_and_handle_gaps(tr, gap_threshold=10, null_values=[0, np.nan], verbose=False):
@@ -3458,3 +3440,317 @@ def detect_and_handle_gaps(tr, gap_threshold=10, null_values=[0, np.nan], verbos
 
     tr.data = data
     return tr
+
+
+##########################################################################
+####                    Montserrat Trace tools                        ####
+##########################################################################
+
+def fix_trace_mvo(trace, legacy=False, netcode='MV'):
+    fix_y2k_times_mvo(trace)
+    fix_sample_rate(trace)
+    trace.id = correct_nslc_mvo(trace.id, trace.stats.sampling_rate)
+    fix_trace_id(trace, legacy=legacy, netcode=netcode)
+
+def correct_nslc_mvo(traceID, Fs, shortperiod=None):
+    # Montserrat trace IDs are often bad. return correct trace ID
+    # also see fix_nslc_montserrat in /home/thompsong/Developer/SoufriereHillsVolcano/AnalogSeismicNetworkPaper/LIB/fix_mvoe_traceid.ipynb
+    # special case - based on waveform analysis, this trace is either noise or a copy of MV.MBLG..SHZ
+    if traceID == '.MBLG.M.DUM':
+        traceID= 'MV.MBLG.10.SHZ'
+    traceID = traceID.replace("?", "x")
+
+    oldnet, oldsta, oldloc, oldcha = traceID.split('.')
+
+    net = 'MV'    
+    sta = oldsta.strip()
+    loc = oldloc.strip()
+    chan = oldcha.strip()
+
+    if loc == '--' or loc == 'J' or loc=='I':
+        loc = ''    
+
+    if not shortperiod:
+        if 'SB' in chan or chan[0] in 'BH':
+            shortperiod=False
+        else:
+            shortperiod = True
+
+    # Determine the correct band code
+    expected_band_code = _get_band_code(Fs) # this assumes broadband sensor
+
+    # adjust if short-period sensor
+    expected_band_code = _adjust_band_code_for_sensor_type(chan[0], expected_band_code, short_period=shortperiod)
+    chan = expected_band_code + chan[1:]    
+
+    instrumentcode = 'H'
+    orientationcode = 'x'
+    if 'Z' in loc or 'Z' in chan:
+        orientationcode = 'Z'
+    elif 'N' in loc or 'N' in chan:
+        orientationcode = 'N'
+    elif 'E' in loc or 'E' in chan:
+        orientationcode = 'E'    
+
+
+    if (sta=='MBLY' and chan[0]=='P') or 'AP' in chan or 'PR' in chan or 'PH' in chan or chan=='S A':
+        instrumentcode = 'D'
+        orientationcode = 'F'
+        if chan[-1].isnumeric():
+            loc = chan[-1].zfill(2)
+        elif loc.isnumeric():
+            loc = loc.zfill(2)
+        else:
+            loc = ''
+
+
+    elif len(chan)>1:
+        if chan[1].strip():
+            instrumentcode = chan[1] 
+        if len(chan)>2:
+            orientationcode = chan[2]
+            if orientationcode=='H':
+                orientationcode='x'
+
+    
+    # Montserrat BB network 1996-2004 had weirdness like
+    # BB stations having channels 'SB[Z,N,E]' and
+    # SP stations having channels 'S [Z,N,E]'
+    # location code was usually 'J' for seismic, 'E' for pressure
+    # channel was 'PRS' for pressure
+    # there were also 'A N' channels co-located with single-component Integra LA100s, so perhaps those were some other
+    # type of seismometer, oriented North?
+    # let's handle these directly here
+    if len(chan)==2:
+
+        # could be a 2006 era waveform trace ID where given as .STAT.[ZNE].[BS]H
+        if len(loc)==1:
+            #chan=chan+loc # now length 3
+            if loc in 'ZNE':
+                orientationcode = loc
+                loc = ''
+            #if not loc.isnumeric():
+            #    loc='' 
+        elif len(loc)==0:
+            # could be arrival row from an Sfile, where the "H" is omitted
+            # or an AEF line where trace dead and orientation missing
+            #instrumentcode = 'H'
+            if chan[1] in 'ZNE':
+                orientationcode = chan[1]
+            #else:
+            #    orientationcode = '' # sometimes get two-character chans from AEF lines which omit component when trace is dead, e.g. 01-0954-24L.S200601, 
+
+
+    
+    elif len(chan)==3:
+        
+        if chan[0:2]=='SB':
+             # just because we know it is BB sensor
+            instrumentcode = 'H'
+
+    chan = expected_band_code + instrumentcode + orientationcode
+
+    newID = net + "." + sta + "." + loc + "." + chan
+    #print(traceID,'->',newID)
+    return newID
+
+def load_mvo_master_inventory(XMLDIR):
+    master_station_xml = os.path.join(XMLDIR, 'MontserratDigitalSeismicNetwork.xml')
+    if os.path.exists(master_station_xml):
+        print('Loading ',master_station_xml)
+        return read_inventory(master_station_xml)
+    else:
+        print('Could not find ',master_station_xml)        
+        return None
+
+def fix_sample_rate(st, Fs=75.0):
+    if isinstance(st, Stream):
+        for tr in st:
+            fix_sample_rate(tr, Fs=Fs)  # Recursive call for each Trace
+    elif isinstance(st, Trace):
+        tr = st
+        if tr.stats.sampling_rate > Fs * 0.99 and tr.stats.sampling_rate < Fs * 1.01:
+            tr.stats.sampling_rate = Fs 
+    else:
+        raise TypeError("Input must be an ObsPy Stream or Trace object.")    
+
+def fix_y2k_times_mvo(st):
+    if isinstance(st, Stream):
+        for tr in st:
+            fix_y2k_times_mvo(tr, Fs=75.0)  # Recursive call for each Trace
+    elif isinstance(st, Trace):
+        tr = st
+        yyyy = tr.stats.starttime.year
+        if yyyy == 1991 or yyyy == 1992 or yyyy == 1993: # digitize
+            # OS9/Seislog for a while subtracted 8 years to avoid Y2K problem with OS9
+            # should be already fixed but you never know
+            tr.stats.starttime._set_year(yyyy+8)
+        if yyyy < 1908:
+            # getting some files exactly 100 years off
+            tr.stats.starttime._set_year(yyyy+100) 
+    else:
+        raise TypeError("Input must be an ObsPy Stream or Trace object.")
+        
+# bool_ASN: set True only if data are from MVO analog seismic network
+def read_mvo_waveform_file(wavpath, bool_ASN=False, verbose=False, \
+                                            seismic_only=False, vertical_only=False):
+    if os.path.exists(wavpath):
+        st = read(wavpath)
+    else:
+        print('ERROR. %s not found.' % wavpath)
+        return Stream()
+    
+    if vertical_only:
+        st = st.select(component='Z')
+    elif seismic_only:
+        for tr in st:
+            if not tr.stats.channel[1] in 'HL':
+                st.remove(tr)
+    remove_empty_traces(st)
+    for tr in st:
+        fix_trace_mvo(tr)
+
+    return st
+
+def preprocess_stream(st, bool_despike=True, bool_clean=True, inv=None, \
+                      quality_threshold=-np.Inf, taperFraction=0.05, \
+                    filterType="bandpass", freq=[0.5, 30.0], corners=6, \
+                    zerophase=False, outputType='VEL', \
+                    miniseed_qc=True, verbose=False, max_dropout=0.0, \
+                    units='Counts', bool_detrend=True):
+    """
+    Preprocesses a seismic stream by applying quality control, filtering, and instrument response correction.
+
+    This function performs the following operations:
+    - Quality control checks, including dropout detection and data gaps.
+    - Optional despiking to remove single-sample anomalies.
+    - Detrending, tapering, and bandpass filtering.
+    - Instrument response removal (if an ObsPy inventory is provided).
+    - Scaling data to physical units using the calibration factor (`calib`).
+    - Tracks processing steps in `tr.stats.history`.
+
+    Parameters:
+    ----------
+    st : obspy.Stream
+        The seismic stream to process.
+    bool_despike : bool, optional
+        Whether to remove single-sample spikes from the trace (default: True).
+    bool_clean : bool, optional
+        Whether to apply detrending, tapering, and filtering (default: True).
+    inv : obspy.Inventory, optional
+        Instrument response metadata for deconvolution (default: None).
+    quality_threshold : float, optional
+        Minimum quality factor required to keep the trace (default: -Inf).
+    taperFraction : float, optional
+        Fraction of the trace length to use for tapering (default: 0.05).
+    filterType : str, optional
+        Type of filter to apply. Options: "bandpass", "lowpass", "highpass" (default: "bandpass").
+    freq : list of float, optional
+        Frequency range for filtering: [freq_min, freq_max] (default: [0.5, 30.0] Hz).
+    corners : int, optional
+        Number of filter corners (default: 6).
+    zerophase : bool, optional
+        Whether to apply a zero-phase filter (default: False).
+    outputType : str, optional
+        Type of output after instrument response removal. Options: "VEL" (velocity), "DISP" (displacement), "ACC" (acceleration), "DEF" (deformation) (default: "VEL").
+    miniseed_qc : bool, optional
+        Whether to perform MiniSEED quality control checks (default: True).
+    verbose : bool, optional
+        If True, prints processing steps (default: False).
+    max_dropout : float, optional
+        Maximum allowable data dropout percentage before rejection (default: 0.0).
+    units : str, optional
+        Unit of the trace before processing. Defaults to "Counts".
+
+    Returns:
+    -------
+    bool
+        Returns `True` if the trace was successfully processed, `False` if rejected due to poor quality or errors.
+    
+    Notes:
+    ------
+    - If `inv` is provided, `remove_response()` is used to convert the waveform to physical units.
+    - If `inv` is not provided but `tr.stats.calib` is set, the trace is manually scaled.
+    - If the trace fails quality checks (e.g., excessive gaps), it is rejected.
+    - `tr.stats.history` keeps track of applied processing steps.
+
+    Example:
+    --------
+    ```python
+    from obspy import read
+    from obspy.clients.fdsn import Client
+
+    # Read a seismic trace
+    tr = read("example.mseed")[0]
+
+    # Load an inventory for response correction
+    client = Client("IRIS")
+    inv = client.get_stations(network="IU", station="ANMO", level="response")
+
+    # Process the trace
+    success = preprocess_trace(tr, inv=inv, verbose=True)
+
+    if success:
+        tr.plot()
+    else:
+        print("Trace did not meet quality criteria and was rejected.")
+    ```
+    """
+    if len(st) > 0:
+        for tr in st:                  
+            if preprocess_trace(tr, bool_despike=True, \
+                    bool_clean=bool_clean, \
+                    inv=inv, \
+                    quality_threshold=quality_threshold, \
+                    taperFraction=0.05, \
+                    filterType="bandpass", \
+                    freq=freq, \
+                    corners=2, \
+                    zerophase=False, \
+                    outputType=outputType, \
+                    miniseed_qc=True, \
+                    max_dropout=max_dropout):
+                pass
+            else:
+                st.remove(tr)
+            
+        remove_low_quality_traces(st, quality_threshold=quality_threshold)
+
+
+def inventory_fix_ids(inv, netcode='MV'):
+    for network in inv.networks:
+        if not network.code:
+            network.code = netcode
+        for station in network.stations:
+            for channel in station.channels:
+                if channel.code[0] in 'FCES':
+                    shortperiod = True
+                if channel.code[0] in 'GDBH':
+                    shortperiod = False
+                Fs = channel.sample_rate
+                nslc = network.code + '.' + station.code + '..' + channel.code
+                if netcode=='MV':
+                    nslc = correct_nslc_mvo(nslc, Fs, shortperiod=shortperiod)
+                net, sta, loc, chan = nslc.split('.')
+                channel.code = chan
+            station.code = sta
+
+if __name__ == "__main__":
+
+    # Create a sample trace with gaps
+    data = np.concatenate([np.random.randn(100), np.full(5, np.nan), np.random.randn(100)])
+    tr = Trace(data=data)
+
+    # Run the detrending function
+    tr = detrend_trace(tr, gap_threshold=3, verbose=True)
+
+
+    # Load a seismic trace with gaps
+    st = read("example_with_gaps.mseed")
+    tr = st[0]  # Extract first trace
+
+    # Process gaps
+    tr = detect_and_handle_gaps(tr, gap_threshold=5, verbose=True)
+
+    # Plot the result
+    tr.plot()         

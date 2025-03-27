@@ -14,6 +14,8 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from pprint import pprint
 import pandas as pd
 from libseisGT import detect_network_event
+from metrics import estimate_snr, compute_amplitude_spectra, plot_amplitude_spectra, \
+    compute_amplitude_ratios, plot_amplitude_ratios, get_bandwidth
 
 class SeismicGUI:
     def __init__(self, master, stream):
@@ -241,229 +243,113 @@ def plot_detected_stream(detected_st, best_trig, outfile=None):
     else:
         plt.show()
 
-def compute_amplitude_spectra(stream, plot=False, outfile=None):
-    if plot:
-        plt.figure(figsize=(10, 6))
 
-    for tr in stream:
-        # Get time sampling interval (dt) and number of samples (N)
-        dt = tr.stats.delta  # Time step
-        N = len(tr.data)  # Number of samples
-
-        # Compute FFT
-        fft_vals = np.fft.fft(tr.data)
-        freqs = np.fft.fftfreq(N, d=dt)  # Frequency axis
-
-        # Compute amplitude spectrum (absolute value of FFT)
-        amplitude_spectrum = np.abs(fft_vals)
-
-        # Plot only positive frequencies (since FFT is symmetric)
-        positive_freqs = freqs[:N//2]
-        positive_amplitudes = amplitude_spectrum[:N//2]
-        if plot:
-            plt.plot(positive_freqs, positive_amplitudes, label=tr.id)
-        
-
-    if plot:
-        plt.xlabel("Frequency (Hz)")
-        plt.ylabel("Amplitude")
-        plt.title("Amplitude Spectrum of Seismic Signals")
-        plt.legend()
-        plt.grid()
-        plt.xlim(0, 50)  # Adjust frequency range as needed
-        if outfile:
-            plt.savefig(outfile)
-        else:
-            plt.show()
-    else:
-        return positive_freqs, positive_amplitudes # need to add these to trace objects instead of returning them
-
-def median_spectrum(spectra):
+def detection_snr(detected_st, best_trig, outfile=None, method='std',
+                 spectral_smooth=5, spectral_average='geometric',
+                 spectral_threshold=0.5, freq_band=None):
     """
-    Computes the median amplitude spectrum.
+    Estimate time-domain and spectral-domain SNR from a triggered waveform stream.
 
-    Parameters:
-        spectra (2D numpy array): Each row is an amplitude spectrum.
+    Parameters
+    ----------
+    detected_st : obspy.Stream
+        The full stream of waveform data containing signal and noise.
+    best_trig : dict
+        Dictionary with keys 'time' (UTCDateTime) and 'duration' (float).
+    outfile : str, optional
+        If provided, a spectral amplitude ratio plot will be saved to this file.
+    method : str, optional
+        Time-domain SNR method: 'std', 'max', 'rms', or 'spectral'.
+    spectral_smooth : int, optional
+        Moving average window for smoothing amplitude ratios.
+    spectral_average : str, optional
+        Spectral averaging method: 'geometric', 'mean', 'median'.
+    spectral_threshold : float, optional
+        Bandwidth threshold as fraction of peak for get_bandwidth().
+    freq_band : tuple(float, float), optional
+        Frequency band (Hz) to average spectral SNR over.
 
-    Returns:
-        numpy array: Median spectrum.
+    Returns
+    -------
+    snr_list : list of float
+        SNR values computed using the specified method.
+    fmetrics_dict : dict or None
+        Bandwidth metrics from the average spectral ratio, or None if unavailable.
     """
-    return np.median(spectra, axis=0)
+    trig_stime = best_trig['time']
+    trig_etime = trig_stime + best_trig['duration']
 
-def geometric_mean_spectra(spectra):
-    """
-    Computes the geometric mean of multiple amplitude spectra.
+    # Split into signal and noise windows
+    signal_st = detected_st.copy().trim(starttime=trig_stime, endtime=trig_etime)
+    noise_st = detected_st.copy().trim(endtime=trig_stime)
 
-    Parameters:
-        spectra (2D numpy array): Each row is an amplitude spectrum.
+    # Estimate time-domain SNR
+    snr_list, _, _ = estimate_snr(
+        detected_st, method=method, split_time=(trig_stime, trig_etime),
+        spectral_kwargs={
+            'smooth_window': spectral_smooth,
+            'average': spectral_average
+        },
+        freq_band=freq_band
+    )
 
-    Returns:
-        numpy array: Geometric mean spectrum.
-    """
-    spectra = np.array(spectra)
+    # Estimate spectral amplitude ratios
+    avg_freqs, avg_spectral_ratio, indiv_ratios, freqs_list, trace_ids, _ = compute_amplitude_ratios(
+        signal_st, noise_st,
+        smooth_window=spectral_smooth,
+        average=spectral_average,
+        verbose=True
+    )
 
-    # Replace zero values to avoid log issues (smallest positive float)
-    spectra[spectra == 0] = np.finfo(float).eps
-
-    # Compute geometric mean across spectra (axis=0 means across rows)
-    gm_spectrum = np.exp(np.mean(np.log(spectra), axis=0))
-    
-    return gm_spectrum
-
-
-def compute_amplitude_ratios(signal_stream, noise_stream, log_scale=False, smooth_window=None, plot=False, outfile=None, verbose=False, average='geometric'):
-    if outfile:
-        plot = True
-    if plot:
-        plt.figure(figsize=(10, 6))
-
-    # Create a dictionary for noise traces for quick lookup
-    noise_dict = {tr.id: tr for tr in noise_stream}
-
-    spectral_ratios_list = []
-    freqs_list = []
-    avg_freqs, avg_spectral_ratio = None, None
-
-    for sig_tr in signal_stream:
-        trace_id = sig_tr.id
-        if trace_id not in noise_dict:
-            print(f"Skipping {trace_id}: No matching noise trace.")
-            continue
-
-        noise_tr = noise_dict[trace_id]
-
-        # Ensure both traces have the same length
-        min_len = min(len(sig_tr.data), len(noise_tr.data))
-        sig_data = sig_tr.data[:min_len]
-        noise_data = noise_tr.data[:min_len]
-
-        # Get sampling interval (dt) and number of samples (N)
-        dt = sig_tr.stats.delta
-        N = min_len  # Use the shortest available length
-
-        # Compute FFT for signal and noise
-        fft_signal = np.fft.fft(sig_data)
-        fft_noise = np.fft.fft(noise_data)
-        freqs = np.fft.fftfreq(N, d=dt)  # Frequency axis
-
-        # Compute amplitude spectrum
-        amp_signal = np.abs(fft_signal)
-        amp_noise = np.abs(fft_noise)
-
-        # Avoid division by zero by replacing zeros with a small number
-        amp_noise[amp_noise == 0] = 1e-10  
-
-        # Compute amplitude ratio
-        amplitude_ratio = amp_signal / amp_noise
-
-        # Smooth the amplitude ratio using a moving average if requested
-        if smooth_window:
-            kernel = np.ones(smooth_window) / smooth_window
-            amplitude_ratio = np.convolve(amplitude_ratio, kernel, mode="same")
-
-        # Store spectral ratios for computing the overall ratio
-        spectral_ratios_list.append(amplitude_ratio[:N//2])
-        freqs_list.append(freqs[:N//2])
-
-        # Plot only positive frequencies for individual traces
-        if plot:
-            if log_scale:
-                plt.plot(freqs[:N//2], np.log10(amplitude_ratio[:N//2] + 1), label=trace_id, alpha=0.5, linewidth=1)
-            else:
-                plt.plot(freqs[:N//2], amplitude_ratio[:N//2], label=trace_id, alpha=0.5, linewidth=1)
-    
-    if verbose:
-        print(f"Processed {len(spectral_ratios_list)} traces    ")
-
-    # Compute the overall spectral ratio by summing all individual ratios
-    if spectral_ratios_list:
-        if average == 'median':
-            avg_spectral_ratio = median_spectrum(spectral_ratios_list)
-        elif average == 'geometric':
-            avg_spectral_ratio = geometric_mean_spectra(spectral_ratios_list)
-        else:
-            avg_spectral_ratio = np.mean(np.array(spectral_ratios_list), axis=0)  # Compute the mean spectral ratio
-        avg_freqs = np.array(freqs_list[0])  # All traces should have the same frequency bins
-
-
-
-        # Plot the overall spectral ratio with a thicker line
-        if plot:
-            if log_scale:
-                plt.plot(avg_freqs, np.log10(avg_spectral_ratio + 1), color="black", linewidth=3, label="Overall Ratio")
-            else:
-                plt.plot(avg_freqs, avg_spectral_ratio, color="black", linewidth=3, label="Overall Ratio")
-    if plot:
-        plt.xlabel("Frequency (Hz)")
-        plt.ylabel("Amplitude Ratio (Signal/Noise)")
-        plt.title("Amplitude Ratio of Signal to Noise")
-        plt.legend()
-        plt.grid()
-        plt.xlim(0, 50)  # Adjust frequency range as needed
-        plt.ylim(bottom=0)  # Ensure no negative values
-        if outfile:
-            plt.savefig(outfile)
-        else:
-            plt.show()
-    return avg_freqs, avg_spectral_ratio # could also add to each indivdual trace object as well as returning average
-
-def signal2noise(detected_st, best_trig, outfile=None):
-    signal_st = detected_st.copy().trim(starttime=best_trig['time'], endtime=best_trig['time']+best_trig['duration'])
-    noise_st = detected_st.copy().trim(endtime=best_trig['time'])
-    snr = []
-    for i, tr in enumerate(signal_st):
-        snr.append(np.nanstd(tr.data) / np.nanstd(noise_st[i].data))
-    avg_freqs, avg_spectral_ratio = compute_amplitude_ratios(signal_st, noise_st, log_scale=False, smooth_window=5, outfile=outfile, verbose=True, average='geometric') # add return values, and a plot and outfile 
+    # Optional plot
     if isinstance(avg_freqs, np.ndarray) and isinstance(avg_spectral_ratio, np.ndarray):
-        fmetrics_dict = get_bandwidth(avg_freqs, avg_spectral_ratio, threshold=0.5) 
-        return snr, fmetrics_dict
+        if outfile:
+            plot_amplitude_ratios(
+                avg_freqs, avg_spectral_ratio,
+                individual_ratios=indiv_ratios,
+                freqs_list=freqs_list,
+                trace_ids=trace_ids,
+                log_scale=True,
+                outfile=outfile,
+                threshold=spectral_threshold
+            )
+
+        # Bandwidth metrics
+        fmetrics_dict = get_bandwidth(avg_freqs, avg_spectral_ratio, threshold=spectral_threshold)
+        return snr_list, fmetrics_dict
+
     else:
-        return snr, None
-
-import numpy as np
-import scipy.signal
-
-def get_bandwidth(frequencies, amplitude_ratio, threshold=0.707):
-    """
-    Estimates the peak frequency, bandwidth, and cutoff frequencies
-    from a smoothed amplitude ratio spectrum.
-
-    Parameters:
-        frequencies (numpy array): Frequency values (Hz)
-        amplitude_ratio (numpy array): Amplitude ratio spectrum (signal/noise)
-
-    Returns:
-        dict: Contains 'f_peak', 'f_low', 'f_high', and 'bandwidth'.
-    """
-
-    # Step 1: Smooth the amplitude ratio spectrum using a moving average filter
-    smoothed_ratio = scipy.signal.savgol_filter(amplitude_ratio, window_length=9, polyorder=2)
-
-    # Step 2: Find the peak frequency (max amplitude in smoothed spectrum)
-    peak_index = np.argmax(smoothed_ratio)
-    f_peak = frequencies[peak_index]
-    A_peak = smoothed_ratio[peak_index]
-
-    # Step 3: Find the -3 dB cutoff points (i.e., where amplitude is 0.707 * A_peak)
-    threshold = A_peak * 0.707
-
-    # Find lower frequency cutoff (f_low)
-    lower_indices = np.where(smoothed_ratio[:peak_index] < threshold)[0]
-    f_low = frequencies[lower_indices[-1]] if len(lower_indices) > 0 else frequencies[0]  # First valid point
-
-    # Find upper frequency cutoff (f_high)
-    upper_indices = np.where(smoothed_ratio[peak_index:] < threshold)[0]
-    f_high = frequencies[peak_index + upper_indices[0]] if len(upper_indices) > 0 else frequencies[-1]
-
-    # Compute bandwidth
-    bandwidth = f_high - f_low
-
-    return {
-        "f_peak": f_peak,
-        "f_low": f_low,
-        "f_high": f_high,
-        "bandwidth": bandwidth
-    }    
+        return snr_list, None
+  
+def real_time_optimization(band='all'):
+    corners = 2
+    if band=='VT':
+        # VT + false
+        sta_secs = 1.4
+        lta_secs = 7.0
+        threshON = 2.4
+        threshOFF = 1.2
+        freqmin = 3.0
+        freqmax = 18.0
+    elif band=='LP':
+        # LP + false
+        sta_secs = 2.3
+        lta_secs = 11.5
+        threshON = 2.4
+        threshOFF = 1.2
+        freqmin = 0.8
+        freqmax = 10.0        
+    elif band=='all':
+        # all = LP + VT + false
+        sta_secs = 2.3
+        lta_secs = 11.5
+        threshON = 2.4
+        threshOFF = 1.2
+        freqmin = 1.5
+        freqmax = 12.0        
+    threshOFF = threshOFF / threshON
+        
+    return sta_secs, lta_secs, threshON, threshOFF, freqmin, freqmax, corners
 
 if __name__ == "__main__":
     stream = read('test.mseed', format='MSEED')  # Modify to load actual data

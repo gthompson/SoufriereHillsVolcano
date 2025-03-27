@@ -4,13 +4,14 @@ import pprint
 from obspy.io.nordic.core import readheader, readwavename, _is_sfile, blanksfile
 from obspy import read, Stream, UTCDateTime, read_inventory
 from obspy.core.event import QuantityError, Pick
-from libMVO import correct_nslc, read_monty_wavfile_and_correct_traceIDs, inventory_fix_ids
+#from libMVO import correct_nslc, read_mvo_waveform_file, inventory_fix_ids
 from glob import glob
 import pandas as pd
 #import numpy as np
 #import obspy
 #import libSeisan2Pandas as seisan
-from lib.libseisGT_old3 import process_trace, remove_low_quality_traces
+#from lib.libseisGT_old3 import process_trace, remove_low_quality_traces
+from libseisGT import read_mvo_waveform_file, preprocess_stream, inventory_fix_ids
 
 class Sfile:
     'Base class for Sfile parameters'
@@ -878,6 +879,7 @@ class AEFfile:
 
 ############################ new stuff
 
+
 def set_globals(SEISAN_DATA='/data/SEISAN_DB', DB='MVOE_', xmlfile='MV.xml', station0file='STATION0_MVO.HYP'):
     master_station_xml = os.path.join(SEISAN_DATA, 'CAL', xmlfile)
     station0hypfile = os.path.join(SEISAN_DATA, 'DAT', station0file)
@@ -1005,8 +1007,9 @@ def get_sfile_list(SEISAN_DATA, DB, startdate, enddate, verbose=False):
 def read_seisandb_apply_custom_function_to_each_event(startdate, enddate, \
     SEISAN_DATA='/data/SEISAN_DB', DB='MVOE_', inv=None, \
     post_process_function=None, verbose=False, bool_clean=True, \
-        plot=False, valid_subclasses='', quality_threshold=1.0, \
-            outputType=None, freq=[0.5, 30.0], seismic_only=False, vertical_only=False, max_dropout=None, **kwargs):
+    plot=False, valid_subclasses='', quality_threshold=1.0, \
+    outputType=None, freq=[0.5, 30.0], seismic_only=False, \
+    vertical_only=False, max_dropout=None, **kwargs):
     if vertical_only or outputType:
         seismic_only = True
 
@@ -1031,8 +1034,7 @@ def read_seisandb_apply_custom_function_to_each_event(startdate, enddate, \
         for item in ['wavfile1', 'wavfile2']: # there can be up to 2 wavfiles per sfile, One from DSN and one from ASN. But here we are only interested in DSN, and these have 'MVO' in the filename
             wavfile = d[item]
             wavfound = False
-            if wavfile and 'MVO' in os.path.basename(wavfile):               
-                #st = Stream()
+            if wavfile and DB[0:3] in os.path.basename(wavfile):               
                 if os.path.isfile(wavfile):
                     wavfound = True
                 else:
@@ -1046,20 +1048,14 @@ def read_seisandb_apply_custom_function_to_each_event(startdate, enddate, \
             if wavfound:
                 print(f'Sfile: {os.path.basename(nfile)}; WAVfile: {os.path.basename(wavfile)}\n')
                 try:
-                    st = read_monty_wavfile_and_correct_traceIDs(wavfile, bool_ASN=False, \
-                                                                 verbose=verbose, seismic_only=seismic_only, vertical_only=vertical_only)
+                    st = read_mvo_waveform_file(wavfile, bool_ASN=False, \
+                                                verbose=verbose, seismic_only=seismic_only, vertical_only=vertical_only)
                 except:
                     if verbose:
                         print(f'could not load {wavfile}')
                 else:
                     raw_st = st.copy()
-                    if verbose:
-                        print(st)                    
-                    if len(st) > 0:
-                        for tr in st:                  
-                            if verbose:
-                                print('\n', f'Processing {tr}')
-                            if process_trace(tr, bool_despike=True, \
+                    preprocess_stream(st, bool_despike=True, \
                                     bool_clean=bool_clean, \
                                     inv=inv, \
                                     quality_threshold=quality_threshold, \
@@ -1070,32 +1066,24 @@ def read_seisandb_apply_custom_function_to_each_event(startdate, enddate, \
                                     zerophase=False, \
                                     outputType=outputType, \
                                     miniseed_qc=True,
-                                    max_dropout=max_dropout):
-                                pass
-                            else:
-                                st.remove(tr)
-                            
-                        remove_low_quality_traces(st, quality_threshold=quality_threshold)
+                                    max_dropout=max_dropout)
 
-                        if len(st)>0: 
-                            if post_process_function:
-                                print(f"Passing kwargs to {post_process_function.__name__}: {kwargs}")
-                                post_process_function(st, raw_st, **kwargs)
-                            else:
-                                print('\nFinal Stream:')
-                                for tr in st:
-                                    print(tr.id, tr.stats.quality_factor)
-                                if plot:
-                                    print('Raw data')
-                                    raw_st.plot(equal_scale=False);
-                                    print('Pre-processed data')
-                                    st.plot(equal_scale=False);
+                    if len(st)>0: 
+                        if post_process_function:
+                            print(f"Passing kwargs to {post_process_function.__name__}: {kwargs}")
+                            post_process_function(st, raw_st, **kwargs)
                         else:
-                            if verbose:
-                                print('- no traces in Stream after processing')
-
+                            print('\nFinal Stream:')
+                            for tr in st:
+                                print(tr.id, tr.stats.quality_factor)
+                            if plot:
+                                print('Raw data')
+                                raw_st.plot(equal_scale=False);
+                                print('Pre-processed data')
+                                st.plot(equal_scale=False);
                     else:
                         if verbose:
-                            print('- no traces in Stream after loading')
+                            print('- no traces in Stream')
+
             else:
                 print(f'Sfile: {os.path.basename(nfile)}; WAVfile: None\n')
