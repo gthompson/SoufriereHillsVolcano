@@ -2,17 +2,23 @@
 #import sys
 #sys.path.append('/Users/thompsong/src/kitchensinkGT/LIB')
 import os
+import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
 from scipy.stats import describe
 from scipy.interpolate import interp1d
 from obspy import Stream, Trace
-#from obspy.signal.quality_control import MSEEDMetadata 
-#import libseisGT
-#from lib.libseisGT_old3 import add_to_trace_history #, clean_trace
 from libseisGT import add_to_trace_history
 import pandas as pd
 from math import pi
 from scipy.signal import savgol_filter
+from obspy.core.event import Catalog, Event, Origin, Magnitude, Amplitude, StationMagnitude, CreationInfo, Comment, EventDescription
+from obspy.core.event.resourceid import ResourceIdentifier
+from obspy.core.event.event import EventType
+from obspy.core.event.waveform import WaveformStreamID
+from obspy import UTCDateTime, read
+from collections import defaultdict
+from obspy.geodetics.base import gps2dist_azimuth
 """
 Functions for computing data quality metrics and statistical metrics (such as amplitude, energy and frequency) 
 on Stream/Trace objects.
@@ -744,18 +750,6 @@ def _band_ratio(tr, freqlims=[1, 6, 11]):
 
 
 
-from obspy.core.event import Catalog, Event, Origin, Magnitude, Amplitude, StationMagnitude, CreationInfo, Comment, EventDescription
-from obspy.core.event.resourceid import ResourceIdentifier
-from obspy.core.event.event import EventType
-from obspy.core.event.waveform import WaveformStreamID
-from obspy import UTCDateTime, read
-import os
-import pickle
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-from math import pi
-from collections import defaultdict
 
 def export_trace_metrics_to_dataframe(stream, include_id=True, include_starttime=True):
     """
@@ -962,7 +956,7 @@ def read_enhanced_stream(enhanced_wavpath):
     return st
 
 
-from obspy.geodetics.base import gps2dist_azimuth
+
 
 def estimate_distance(trace, source_coords):
     """

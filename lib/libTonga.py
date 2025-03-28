@@ -49,6 +49,7 @@ otime = obspy.core.UTCDateTime('2022-01-15T04:14:45.000000Z') # main eruption ti
 
 
 ####################### FUNCTIONS FOR SEISMO-ACOUSTICS #####################
+''' # moved to fdsn.py
 def get_fdsn_identifier(fdsnURL):
     prepend=''
     if 'iris' in fdsnURL:
@@ -58,7 +59,7 @@ def get_fdsn_identifier(fdsnURL):
     if 'geonet' in fdsnURL:
         prepend='nz_'  
     return prepend
-
+'''
 
 # Use get_inventory and get_stream in FDSNtools here
 """ def get_inventory_and_waveforms(fdsnURL, searchRadiusDeg, olat, olon, startt, endt, chanstring, data_root, overwrite=False, network='*', station='*', location='*'):
@@ -115,7 +116,7 @@ def get_fdsn_identifier(fdsnURL):
     return st, inv """
 
 
-
+''' better versions in libseisGT and preprocessing.py 
 def smart_merge(st): # a more thorough version exists in libseisGT
     st2 = obspy.core.Stream()
     for tr_original in st:
@@ -244,7 +245,7 @@ def remove_outliers(a, t, f=30, amax=2000, amin=1):
     return
   
 
-  
+'''  
 def plot_amplitude_versus_distance(st, units, reftime=None, cmin=300, cmax=420, duration=7200):
     r = []
     a = []
@@ -404,18 +405,7 @@ def plot_reduced_pressure(st, units):
     
 
 
-def yes_or_no(question, default_answer='y', auto=False):
-    #while "the answer is invalid":
-    if auto==True:
-        reply = ''
-    else:
-        reply = str(input(question+' (y/n): ')).lower().strip()
-    if len(reply) == 0:
-        reply = default_answer
-    if reply[0] == 'y':
-        return True
-    if reply[0] == 'n':
-        return False
+
    
 
      
@@ -528,27 +518,11 @@ def analyze_clientchan(fdsnClient, chanstring, startt, endt, fmin=0.001, network
 
 
 
-def subset_inv(inv, st, st_subset):
-    # subset an inventory based on a stream object which is a subset of another
-    try:
-        inv_new = inv.copy() # got an error here once that Inventory has no copy(), but it does
-        for tr in st:
-            if len(st_subset.select(id=tr.id))==0:
-                inv_new = inv_new.remove(network=tr.stats.network, station=tr.stats.station, location=tr.stats.location, channel=tr.stats.channel)
-        return inv_new
-    except:
-        print('Failed to subset inventory. Returning unchanged')
-        return inv
 
-
-
-def plot_inv(inv):
-    inv.plot(water_fill_color=[0.0, 0.5, 0.8], continent_fill_color=[0.1, 0.6, 0.1], size=30);
-    return
     
 
 
-def medfilt(x, k):
+def _medfilt(x, k):
     """Apply a length-k median filter to a 1D array x.
     Boundaries are extended by repeating endpoints.
     """
@@ -566,10 +540,9 @@ def medfilt(x, k):
     return np.median(y, axis=1)
 
 
-
-def median_downsample_to_1Hz(st, winlec_sec=1.0):
+def median_downsample_to_1Hz(st, winlen_secs=1.0):
     for tr in st:
-        y = medfilt(tr.data, np.round(winlen_secs / tr.stats.delta,0) )
+        y = _medfilt(tr.data, np.round(winlen_secs / tr.stats.delta,0) )
         fs = np.round(tr.stats.sampling_rate,0)
         if fs>=2.0:
             fs_new = tr.stats.sampling_rate/fs
@@ -609,6 +582,7 @@ def get_distance_vector(st):
         r.append(tr.stats.distance)
     return r
      
+
    
     
 def order_traces_by_distance(st, r=[], assert_channel_order=False): 
@@ -638,7 +612,7 @@ def order_traces_by_id(st):
         for tr in st:
             if tr.id == id:
                 st2.append(tr.copy())
-    return st2            
+    return st2         
 
 
 def pick_pressure_onset(st, otime, winsecsmax=7200, speed=310, manual=True):

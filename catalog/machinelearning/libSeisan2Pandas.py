@@ -27,7 +27,7 @@ from obspy.geodetics import locations2degrees, degrees2kilometers
 sys.path.append(os.path.join( os.getenv('HOME'),'src', 'icewebPy') )
 import IceWeb
 
-
+''' # moved to sfile.py
 def get_sfile_list(SEISAN_DATA, DB, startdate, enddate): 
     """
     make a list of Sfiles between 2 dates
@@ -57,7 +57,7 @@ def get_sfile_list(SEISAN_DATA, DB, startdate, enddate):
                     event_list.append(f)
     return event_list 
 
-
+'''
 
 
 

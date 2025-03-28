@@ -636,8 +636,8 @@ def process_timewindows(startt, endt, dsobj, freqmin=0.5, freqmax=None, \
 
             st = dsobj.get_waveforms(startOfTimeWindow-taperSecs, endOfTimeWindow+taperSecs, trace_ids=trace_ids)
             if isinstance(inv, obspy.Inventory):
-                InventoryTools.attach_station_coordinates_from_inventory(inv, st)
-                InventoryTools.attach_distance_to_stream(st, sourcelat, sourcelon)
+                attach_station_coordinates_from_inventory(inv, st)
+                ls.attach_distance_to_stream(st, sourcelat, sourcelon)
 
                 r = [tr.stats.distance for tr in st]
                 if verbose:

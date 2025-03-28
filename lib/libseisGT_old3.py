@@ -78,6 +78,11 @@ def preprocess_trace(tr, bool_despike=True, bool_clean=True, inv=None, quality_t
     bool
         Returns `True` if successfully processed, `False` if rejected due to poor quality.
     """
+
+
+
+
+
     if verbose:
         print(f'Processing {tr}')
     
@@ -85,6 +90,11 @@ def preprocess_trace(tr, bool_despike=True, bool_clean=True, inv=None, quality_t
     tr.stats.setdefault('units', units)
     quality_factor = 1.0  # Default quality score
     is_bad_trace = False  
+
+
+
+
+
 
     # Ignore traces with very low sampling rate (unless they are long-period 'L' channels)
     if tr.stats.sampling_rate < 0.5 and tr.stats.channel[0] != 'L':
@@ -176,11 +186,12 @@ def _clean_trace(tr, taperFraction, filterType, freq, corners, zerophase, inv, o
     npts_pad = int(taperFraction * tr.stats.npts)
     npts_pad_seconds = max(npts_pad * tr.stats.delta, 1/freq[0])  # Ensure minimum pad length
     _pad_trace(tr, npts_pad_seconds)
+    max_fraction = npts_pad / tr.stats.npts
 
     # Taper
     if verbose:
         print('- tapering')
-    tr.taper(max_percentage=taperFraction, type="hann")
+    tr.taper(max_percentage=max_fraction, type="hann")
     add_to_trace_history(tr, 'tapered')
 
     # Filtering
@@ -207,11 +218,34 @@ def _handle_instrument_response(tr, inv, outputType, verbose):
         try:
             if verbose:
                 print('- removing instrument response')
-            tr.remove_response(inventory=inv, output=outputType, pre_filt=None, water_level=60, zero_mean=True)
+            if tr.stats.channel[1]=='D':
+                outputType='DEF' # for pressure sensor
+            tr.remove_response(inventory=inv, output=outputType, \
+                pre_filt=None, water_level=60, zero_mean=True, \
+                taper=False, taper_fraction=0.0, plot=False, fig=None)      
             add_to_trace_history(tr, 'calibrated')
+            tr.stats.calib = 1.0
+            tr.stats['calib_applied'] = _get_calib(tr, inv) # we have to do this, as the calib value is used to scale the data in plots
         except Exception as e:
             print(f'Error removing response: {e}')
-            return False
+            print('remove_response failed for %s' % tr.id)
+            return False            
+    elif tr.stats['units'] == 'Counts' and not 'calibrated' in tr.stats.history and tr.stats.calib!=1.0:
+        tr.data = tr.data * tr.stats.calib
+        tr.stats['calib_applied'] = tr.stats.calib
+        tr.stats.calib = 1.0 # we have to do this, as the calib value is used to scale the data in plots
+        add_to_trace_history(tr, 'calibrated') 
+    
+    if 'calibrated' in tr.stats.history:           
+        if tr.stats.channel[1]=='H':
+            if outputType=='VEL':
+                tr.stats['units'] = 'm/s'
+            elif outputType=='DISP':
+                tr.stats['units'] = 'm'
+        elif tr.stats.channel[1]=='N':
+            tr.stats['units'] = 'm/s2'                
+        elif tr.stats.channel[1]=='D':
+            tr.stats['units'] = 'Pa' 
 
 def add_to_trace_history(tr, message):
     """

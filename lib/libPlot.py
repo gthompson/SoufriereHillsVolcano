@@ -400,7 +400,121 @@ def downsample_and_plot_1_trace_per_location(stream, target_sampling_rate=1.0):
 
             if key not in station_location_data:
                 station_location_data[key] = {"seismic": None, "infrasound": None}
+def plot_seismograms(st, outfile=None, bottomlabel=None, ylabels=None, units=None, channels='ZNE'):
+    """ Create a plot of a Stream object similar to Seisan's mulplt """
+    fh = plt.figure(figsize=(8,12))
 
+    from cycler import cycler
+
+    # Define a list of colors you want to cycle through
+    colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', 
+          '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+
+    # Set the color cycle in matplotlib
+    plt.rcParams['axes.prop_cycle'] = cycler(color=colors)    
+    
+    # get number of stations
+    stations = []
+    for tr in st:
+        stations.append(tr.stats.station)
+    stations = list(set(stations))
+    n = len(stations)
+    
+    # start time as a Unix epoch
+    startepoch = st[0].stats.starttime.timestamp
+    
+    # create empty set of subplot handles - without this any change to one affects all
+    axh = []
+    
+    # loop over all stream objects
+    #colors = ['black', 'blue', 'green']
+    
+    linewidths = [0.25, 0.1, 0.1, 0.25]
+    for i in range(n):
+        # add new axes handle for new subplot
+        #axh.append(plt.subplot(n, 1, i+1, sharex=ax))
+        if i>0:
+            #axh.append(plt.subplot(n, 1, i+1, sharex=axh[0]))
+            axh.append(fh.add_subplot(n, 1, i+1, sharex=axh[0]))
+        else:
+            axh.append(fh.add_subplot(n, 1, i+1))
+        
+        # find all the traces for this station
+        this_station = stations[i]
+        these_traces = st.copy().select(station=this_station)
+        all_ys = []
+        lw = 0.5
+        if len(these_traces)==1:
+            lw = 2
+        for this_trace in these_traces:
+            this_component = this_trace.stats.channel[2]
+            line_index = channels.find(this_component)
+            if line_index>-1:
+                #print(this_trace.id, line_index, colors[line_index], linewidths[line_index])
+            
+                # time vector, t, in seconds since start of record section
+                t = np.linspace(this_trace.stats.starttime.timestamp - startepoch,
+                    this_trace.stats.endtime.timestamp - startepoch,
+                    this_trace.stats.npts)
+                #y = this_trace.data - offset
+                y = get_envelope(this_trace, seconds=0.1)
+                all_ys.append(y)
+                
+                # PLOT THE DATA
+                axh[i].plot(t, y, lw=lw, color=colors[line_index], label=this_component)
+                axh[i].autoscale(enable=True, axis='x', tight=True)
+        if len(these_traces)==3 and len(all_ys)==3:
+                vector_amplitude = np.sqrt(all_ys[0]**2 + all_ys[1]**2 + all_ys[2]**2)
+                axh[i].plot(t, vector_amplitude, color='red', label='vector', lw=2)
+                axh[i].autoscale(enable=True, axis='x', tight=True)  
+        elif len(these_traces)>1:
+                # Stack the data from each trace
+                data = np.array([y for y in all_ys])
+
+                # Compute the median across traces (axis 0 means median across the first dimension - i.e., along traces)
+                median_data = np.nanmedian(data, axis=0)
+                axh[i].plot(t, median_data, color='red', label='median', lw=2)
+                axh[i].autoscale(enable=True, axis='x', tight=True)                         
+        plt.grid()
+        plt.legend()
+        
+
+   
+        # remove yticks because we will add text showing max and offset values
+        #axh[i].yaxis.set_ticks([])
+        '''
+        # remove xticklabels for all but the bottom subplot
+        if i < n-1:
+            axh[i].xaxis.set_ticklabels([])
+        else:
+            # for the bottom subplot, also add an xlabel with start time
+            if bottomlabel:
+                plt.xlabel(bottomlabel)
+            else:
+                plt.xlabel("Starting at %s" % (st[0].stats.starttime) )
+        '''
+
+        # default ylabel is station.channel
+        ylabelstr = this_station + '\n' + units
+        if ylabels:
+            ylabelstr = ylabels[i]
+        plt.ylabel(ylabelstr, rotation=90)
+
+        plt.xlabel(f'Seconds from {st[0].stats.starttime}')
+
+    # change all font sizes
+    plt.rcParams.update({'font.size': 10})
+    
+    plt.subplots_adjust(wspace=0.1)
+
+    #plt.suptitle(f'Amplitude from {st[0].stats.starttime}')
+    
+    # show the figure
+    if outfile:
+        plt.savefig(outfile, bbox_inches='tight')    
+    else:
+        plt.show()
+    
             # Seismic selection: Highest non-zero sample count among ?HZ, ?HN, ?HE
             if channel[1]=='H':
                 if (
